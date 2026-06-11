@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { BleCoreMeshDemo } from "./BleCoreMeshDemo";
 import { ProtocolCoreDemo } from "./ProtocolCoreDemo";
 import "./App.css";
 
@@ -386,6 +387,11 @@ function App() {
       </p>
 
       <ProtocolCoreDemo />
+      <BleCoreMeshDemo
+        runtimePlatform={runtimePlatform}
+        connectedId={connectedId}
+        writeUuid={writeUuid}
+      />
 
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
         {/* Coluna esquerda: descoberta de dispositivos */}

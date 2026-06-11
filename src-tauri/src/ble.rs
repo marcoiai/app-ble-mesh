@@ -142,6 +142,14 @@ pub struct ProtocolTransportPayload {
     pub bytes_len: usize,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MeshCoreFramePayload {
+    pub from_peer: String,
+    pub src_addr: u16,
+    pub payload: Vec<u8>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendProtocolTextRequest {
@@ -159,6 +167,16 @@ pub struct SendProtocolPingRequest {
     pub char_uuid: String,
     pub dst_addr: Option<u16>,
     pub ttl: Option<u8>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendCoreFrameRequest {
+    pub device_id: String,
+    pub char_uuid: String,
+    pub dst_addr: Option<u16>,
+    pub ttl: Option<u8>,
+    pub data: Vec<u8>,
 }
 
 #[tauri::command]
@@ -485,6 +503,35 @@ pub async fn send_protocol_ping_to_device(
 }
 
 #[tauri::command]
+pub async fn send_core_frame_to_device(
+    app: AppHandle,
+    request: SendCoreFrameRequest,
+    state: tauri::State<'_, BleState>,
+) -> Result<String, String> {
+    let sequence_number = next_sequence(&state.sequence);
+    let frame = ProtocolFrame {
+        src_addr: state.node_addr,
+        dst_addr: request.dst_addr.unwrap_or(protocol::BROADCAST_ADDR),
+        ttl: request.ttl.unwrap_or(4),
+        sequence_number,
+        opcode: protocol::OPCODE_CORE_FRAME,
+        payload: request.data,
+        checksum: 0,
+    };
+    let packets = protocol::encode_for_ble_transport(&frame);
+    write_protocol_packets_to_device(&request.device_id, &request.char_uuid, &packets, &state)
+        .await?;
+
+    emit_protocol_transport(&app, sequence_number, &packets);
+    Ok(format!(
+        "Sent mesh core frame seq={} packets={} bytes={}",
+        sequence_number,
+        packets.len(),
+        packets.iter().map(Vec::len).sum::<usize>()
+    ))
+}
+
+#[tauri::command]
 pub async fn send_android_peripheral_ping(
     app: AppHandle,
     state: tauri::State<'_, BleState>,
@@ -525,6 +572,47 @@ pub async fn send_android_peripheral_ping(
     }
 }
 
+#[tauri::command]
+pub async fn send_android_peripheral_core_frame(
+    app: AppHandle,
+    data: Vec<u8>,
+    state: tauri::State<'_, BleState>,
+) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        let sequence_number = next_sequence(&state.sequence);
+        let frame = ProtocolFrame {
+            src_addr: state.node_addr,
+            dst_addr: protocol::BROADCAST_ADDR,
+            ttl: 4,
+            sequence_number,
+            opcode: protocol::OPCODE_CORE_FRAME,
+            payload: data,
+            checksum: 0,
+        };
+        let packets = protocol::encode_for_ble_transport(&frame);
+        for packet in &packets {
+            crate::ble_android::send(packet.clone())?;
+        }
+
+        emit_protocol_transport(&app, sequence_number, &packets);
+        return Ok(format!(
+            "Sent Android mesh core frame seq={} packets={} bytes={}",
+            sequence_number,
+            packets.len(),
+            packets.iter().map(Vec::len).sum::<usize>()
+        ));
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        let _ = data;
+        let _ = state;
+        Err("Android peripheral core frames are only available on Android".to_string())
+    }
+}
+
 async fn write_protocol_packets_to_device(
     device_id: &str,
     char_uuid: &str,
@@ -562,6 +650,21 @@ pub async fn disconnect_device(
 
 pub fn emit_protocol_frame(app: &AppHandle, frame: ProtocolFrame) {
     let _ = app.emit("protocol-frame", protocol::to_event(frame));
+}
+
+fn emit_mesh_core_frame(app: &AppHandle, frame: &ProtocolFrame, incoming_device_id: Option<&str>) {
+    if frame.opcode != protocol::OPCODE_CORE_FRAME {
+        return;
+    }
+
+    let _ = app.emit(
+        "mesh-core-frame",
+        MeshCoreFramePayload {
+            from_peer: incoming_device_id.unwrap_or("ble-neighbor").to_string(),
+            src_addr: frame.src_addr,
+            payload: frame.payload.clone(),
+        },
+    );
 }
 
 async fn handle_protocol_bytes(
@@ -632,6 +735,7 @@ async fn process_completed_frame(
 
     if decision.deliver_locally {
         emit_protocol_frame(app, original_frame.clone());
+        emit_mesh_core_frame(app, &original_frame, incoming_device_id.as_deref());
 
         if original_frame.opcode == protocol::OPCODE_PING {
             let pong = ProtocolFrame {
@@ -739,6 +843,7 @@ pub async fn handle_android_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
 
     if decision.deliver_locally {
         emit_protocol_frame(&app, frame.clone());
+        emit_mesh_core_frame(&app, &frame, Some("ble-neighbor"));
 
         if frame.opcode == protocol::OPCODE_PING {
             let pong = ProtocolFrame {
@@ -805,6 +910,7 @@ pub async fn handle_macos_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
 
     if decision.deliver_locally {
         emit_protocol_frame(&app, frame.clone());
+        emit_mesh_core_frame(&app, &frame, Some("ble-neighbor"));
 
         if frame.opcode == protocol::OPCODE_PING {
             let pong = ProtocolFrame {

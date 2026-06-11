@@ -11,6 +11,7 @@ pub const BROADCAST_ADDR: u16 = 0xffff;
 pub const OPCODE_TEXT: u16 = 1;
 pub const OPCODE_PING: u16 = 2;
 pub const OPCODE_PONG: u16 = 3;
+pub const OPCODE_CORE_FRAME: u16 = 16;
 pub const DEFAULT_BLE_PACKET_LEN: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
