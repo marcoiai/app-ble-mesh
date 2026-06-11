@@ -19,6 +19,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ParcelUuid
 import android.util.Log
+import java.util.ArrayDeque
 import java.util.UUID
 
 @SuppressLint("MissingPermission")
@@ -35,6 +36,8 @@ object BleMeshPeripheral {
     private var characteristic: BluetoothGattCharacteristic? = null
     private val connected = mutableSetOf<BluetoothDevice>()
     private val subscribed = mutableSetOf<BluetoothDevice>()
+    private val notifyQueues = mutableMapOf<String, ArrayDeque<ByteArray>>()
+    private val notifying = mutableSetOf<String>()
 
     @JvmStatic external fun nativeRegister()
     @JvmStatic external fun nativeOnFrame(data: ByteArray)
@@ -119,21 +122,13 @@ object BleMeshPeripheral {
 
     @JvmStatic
     fun send(data: ByteArray) {
-        val server = gattServer ?: return
-        val ch = characteristic ?: return
         val devices = synchronized(subscribed) { subscribed.toList() }
-        for (device in devices) {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    server.notifyCharacteristicChanged(device, ch, false, data)
-                } else {
-                    @Suppress("DEPRECATION")
-                    ch.value = data
-                    @Suppress("DEPRECATION")
-                    server.notifyCharacteristicChanged(device, ch, false)
-                }
-            } catch (t: Throwable) {
-                Log.e(TAG, "notify failed", t)
+        synchronized(notifyQueues) {
+            for (device in devices) {
+                val key = device.address
+                val queue = notifyQueues.getOrPut(key) { ArrayDeque() }
+                queue.add(data.copyOf())
+                pumpNotifyLocked(device)
             }
         }
     }
@@ -147,7 +142,37 @@ object BleMeshPeripheral {
         characteristic = null
         synchronized(connected) { connected.clear() }
         synchronized(subscribed) { subscribed.clear() }
+        synchronized(notifyQueues) {
+            notifyQueues.clear()
+            notifying.clear()
+        }
         Log.i(TAG, "stopped")
+    }
+
+    private fun pumpNotifyLocked(device: BluetoothDevice) {
+        val server = gattServer ?: return
+        val ch = characteristic ?: return
+        val key = device.address
+        if (notifying.contains(key)) return
+
+        val queue = notifyQueues[key] ?: return
+        val data = queue.peekFirst() ?: return
+        notifying.add(key)
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                server.notifyCharacteristicChanged(device, ch, false, data)
+            } else {
+                @Suppress("DEPRECATION")
+                ch.value = data
+                @Suppress("DEPRECATION")
+                server.notifyCharacteristicChanged(device, ch, false)
+            }
+        } catch (t: Throwable) {
+            notifying.remove(key)
+            queue.pollFirst()
+            Log.e(TAG, "notify failed", t)
+        }
     }
 
     fun hasPermissions(context: Context): Boolean {
@@ -181,6 +206,10 @@ object BleMeshPeripheral {
             }
             if (newState != BluetoothProfile.STATE_CONNECTED) {
                 synchronized(subscribed) { subscribed.remove(device) }
+                synchronized(notifyQueues) {
+                    notifyQueues.remove(device.address)
+                    notifying.remove(device.address)
+                }
             }
             Log.i(TAG, "connection ${device.address} -> $newState")
         }
@@ -220,10 +249,26 @@ object BleMeshPeripheral {
                 synchronized(subscribed) {
                     if (enableNotify) subscribed.add(device) else subscribed.remove(device)
                 }
+                if (!enableNotify) {
+                    synchronized(notifyQueues) {
+                        notifyQueues.remove(device.address)
+                        notifying.remove(device.address)
+                    }
+                }
             }
             if (responseNeeded) {
                 gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
             }
+        }
+
+        override fun onNotificationSent(device: BluetoothDevice, status: Int) {
+            synchronized(notifyQueues) {
+                val key = device.address
+                notifyQueues[key]?.pollFirst()
+                notifying.remove(key)
+                pumpNotifyLocked(device)
+            }
+            Log.d(TAG, "notification sent ${device.address}: $status")
         }
 
         override fun onCharacteristicReadRequest(

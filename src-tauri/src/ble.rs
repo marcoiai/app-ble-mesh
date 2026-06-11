@@ -53,6 +53,38 @@ async fn first_adapter(state: &tauri::State<'_, BleState>) -> Result<Adapter, St
         .ok_or_else(|| "No hardware Bluetooth adapter found on this system.".to_string())
 }
 
+async fn find_peripheral_for_connect(adapter: &Adapter, id: &str) -> Result<Peripheral, String> {
+    let mut peripherals = adapter.peripherals().await.map_err(|e| e.to_string())?;
+    if let Some(peripheral) = peripherals.iter().find(|p| p.id().to_string() == id) {
+        return Ok(peripheral.clone());
+    }
+
+    println!("[CONNECT] Device {id} was not in the adapter cache; rescanning before connect...");
+    adapter
+        .start_scan(ScanFilter::default())
+        .await
+        .map_err(|e| format!("Could not restart BLE scan before connect: {e}"))?;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+
+    peripherals = adapter.peripherals().await.map_err(|e| e.to_string())?;
+    let peripheral = peripherals.iter().find(|p| p.id().to_string() == id).cloned();
+    if let Some(peripheral) = peripheral {
+        return Ok(peripheral);
+    }
+
+    let seen = peripherals
+        .iter()
+        .map(|p| p.id().to_string())
+        .take(8)
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "Device not found after rescan. Run scan again. Wanted: {id}. Adapter currently sees {} device(s): {}",
+        peripherals.len(),
+        if seen.is_empty() { "(none)" } else { &seen }
+    ))
+}
+
 // =====================================================================================
 //  TIPOS QUE CRUZAM A PONTE RUST -> REACT
 // =====================================================================================
@@ -197,22 +229,22 @@ pub async fn connect_device(
     state: tauri::State<'_, BleState>,
 ) -> Result<Vec<ServiceInfo>, String> {
     let adapter = first_adapter(&state).await?;
-    let peripherals = adapter.peripherals().await.map_err(|e| e.to_string())?;
-
-    let peripheral = peripherals
-        .into_iter()
-        .find(|p| p.id().to_string() == id)
-        .ok_or_else(|| "Device not found. Run a scan again.".to_string())?;
+    let peripheral = find_peripheral_for_connect(&adapter, &id).await?;
 
     if !peripheral.is_connected().await.unwrap_or(false) {
-        peripheral.connect().await.map_err(|e| e.to_string())?;
+        peripheral
+            .connect()
+            .await
+            .map_err(|e| format!("Connect failed for {id}: {e}"))?;
         println!("[CONNECT] Linked to {}", id);
     }
+
+    let _ = adapter.stop_scan().await;
 
     peripheral
         .discover_services()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Service discovery failed for {id}: {e}"))?;
 
     // Monta o mapa de serviços/características para o frontend.
     let mut services: Vec<ServiceInfo> = Vec::new();
