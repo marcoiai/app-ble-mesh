@@ -11,7 +11,10 @@ fn main() {
 
         println!("cargo:rerun-if-changed={}", source.display());
 
-        let output = Command::new("swiftc")
+        let output = Command::new("xcrun")
+            .arg("--sdk")
+            .arg("macosx")
+            .arg("swiftc")
             .arg(&source)
             .arg("-o")
             .arg(&binary)
@@ -26,7 +29,10 @@ fn main() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             panic!(
-                "swiftc failed while building macOS BLE peripheral helper\nstdout:\n{}\nstderr:\n{}",
+                "swiftc failed while building macOS BLE peripheral helper\n\
+                 The build uses `xcrun --sdk macosx swiftc` so the selected Xcode/Command Line Tools provide a matching compiler and SDK.\n\
+                 If stderr says the SDK is not supported by the compiler, run `xcode-select -p`, `xcrun --sdk macosx --find swiftc`, and `xcrun --sdk macosx --show-sdk-path` on that Mac.\n\
+                 stdout:\n{}\nstderr:\n{}",
                 stdout, stderr
             );
         }
