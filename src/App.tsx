@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { ProtocolCoreDemo } from "./ProtocolCoreDemo";
 import "./App.css";
 
 // ---- Tipos espelhados do Rust (ble.rs) ------------------------------------
@@ -383,6 +384,8 @@ function App() {
           </span>
         )}
       </p>
+
+      <ProtocolCoreDemo />
 
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
         {/* Coluna esquerda: descoberta de dispositivos */}
