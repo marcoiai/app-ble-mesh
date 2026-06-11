@@ -30,3 +30,7 @@ Use `src/mesh-core/index.ts` as the public protocol surface.
 
 The existing BLE proof app can keep its native BLE carrier in `src-tauri`; the next step is to
 adapt that carrier so received BLE frames feed a `MeshNode` instead of a demo-specific ping path.
+
+## Protocol Notes
+
+- subNodes: `docs/protocol/subnodes.md`
