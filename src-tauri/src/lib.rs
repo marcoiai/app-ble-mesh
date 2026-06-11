@@ -133,6 +133,7 @@ pub fn run() {
             ble::send_mesh_packet_to_device,
             ble::send_protocol_text_to_device,
             ble::send_protocol_ping_to_device,
+            ble::send_android_peripheral_ping,
             ble::protocol_node_info,
             ble::disconnect_device,
             ble::start_hardware_mesh_scan,

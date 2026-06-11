@@ -111,7 +111,8 @@ function App() {
   });
   const logRef = useRef<HTMLDivElement>(null);
   const pendingPings = useRef<Map<number, number>>(new Map());
-  const canSendMesh = connectedId != null && writeUuid.length > 0;
+  const canSendMesh =
+    runtimePlatform === "android" || (connectedId != null && writeUuid.length > 0);
 
   const addLog = (msg: string) =>
     setLogs((prev) => [...prev, `${new Date().toLocaleTimeString()}  ${msg}`]);
@@ -325,6 +326,24 @@ function App() {
   };
 
   const handleMeshPing = async () => {
+    if (runtimePlatform === "android") {
+      try {
+        const res = await invoke<string>("send_android_peripheral_ping");
+        const seq = Number(res.match(/seq=(\d+)/)?.[1]);
+        if (Number.isFinite(seq)) {
+          pendingPings.current.set(seq, Date.now());
+        }
+        setMeshStats((prev) => ({
+          ...prev,
+          pingsSent: prev.pingsSent + 1,
+          lastRttMs: null,
+        }));
+        addLog(`🏓 ${res}`);
+      } catch (e) {
+        addLog(`❌ Android mesh ping failed: ${e}`);
+      }
+      return;
+    }
     if (!connectedId || !writeUuid) {
       addLog("⚠️ Pick a writable characteristic first.");
       return;
@@ -559,11 +578,13 @@ function App() {
                 cursor: canSendMesh ? "pointer" : "not-allowed",
               }}
             >
-              Ping mesh
+              {runtimePlatform === "android" ? "Ping subscribed Mac" : "Ping mesh"}
             </button>
             {!canSendMesh && (
               <div style={{ marginTop: 8, color: "#777", fontSize: 12 }}>
-                Waiting for a connected writable 0xFEED characteristic.
+                {runtimePlatform === "android"
+                  ? "Waiting for a Mac to connect and subscribe."
+                  : "Waiting for a connected writable 0xFEED characteristic."}
               </div>
             )}
           </div>

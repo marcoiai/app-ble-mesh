@@ -484,6 +484,47 @@ pub async fn send_protocol_ping_to_device(
     ))
 }
 
+#[tauri::command]
+pub async fn send_android_peripheral_ping(
+    app: AppHandle,
+    state: tauri::State<'_, BleState>,
+) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        let sequence_number = next_sequence(&state.sequence);
+        let sent_ms = now_millis();
+        let frame = ProtocolFrame {
+            src_addr: state.node_addr,
+            dst_addr: protocol::BROADCAST_ADDR,
+            ttl: 4,
+            sequence_number,
+            opcode: protocol::OPCODE_PING,
+            payload: format!("ping:{sequence_number}:{sent_ms}").into_bytes(),
+            checksum: 0,
+        };
+        let packets = protocol::encode_for_ble_transport(&frame);
+        for packet in &packets {
+            crate::ble_android::send(packet.clone())?;
+        }
+
+        emit_protocol_frame(&app, frame);
+        emit_protocol_transport(&app, sequence_number, &packets);
+        return Ok(format!(
+            "Sent Android mesh ping seq={} packets={} bytes={}",
+            sequence_number,
+            packets.len(),
+            packets.iter().map(Vec::len).sum::<usize>()
+        ));
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        let _ = state;
+        Err("Android peripheral ping is only available on Android".to_string())
+    }
+}
+
 async fn write_protocol_packets_to_device(
     device_id: &str,
     char_uuid: &str,
