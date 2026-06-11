@@ -215,6 +215,10 @@ function App() {
   }, [logs]);
 
   const handleScan = async () => {
+    if (runtimePlatform === "android") {
+      addLog("📣 Android is already advertising 0xFEED. Scan from a Mac to connect to this phone.");
+      return;
+    }
     setIsScanning(true);
     addLog("🔍 Scanning for nearby BLE devices (~4s)...");
     try {
@@ -383,8 +387,16 @@ function App() {
             </div>
           )}
 
-          <button onClick={handleScan} disabled={isScanning} style={btn("#5cb85c")}>
-            {isScanning ? "Scanning..." : "Scan for devices"}
+          <button
+            onClick={handleScan}
+            disabled={isScanning || runtimePlatform === "android"}
+            style={btn(runtimePlatform === "android" ? "#777" : "#5cb85c")}
+          >
+            {runtimePlatform === "android"
+              ? "Android advertising; scan from Mac"
+              : isScanning
+                ? "Scanning..."
+                : "Scan for devices"}
           </button>
 
           <label style={{ display: "block", marginTop: 8, fontSize: 13, color: "#555" }}>
