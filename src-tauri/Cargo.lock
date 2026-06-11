@@ -53,7 +53,7 @@ version = "0.1.0"
 dependencies = [
  "btleplug",
  "futures",
- "jni 0.21.1",
+ "jni 0.19.0",
  "serde",
  "serde_json",
  "tauri",

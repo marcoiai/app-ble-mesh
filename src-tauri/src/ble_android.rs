@@ -2,7 +2,8 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use jni::objects::{GlobalRef, JByteArray, JClass, JValue};
+use jni::objects::{GlobalRef, JClass, JObject, JValue};
+use jni::sys::jbyteArray;
 use jni::{JNIEnv, JavaVM};
 use tauri::{AppHandle, Emitter};
 
@@ -17,10 +18,17 @@ pub extern "system" fn Java_com_auser_app_1ble_1mesh_BleMeshPeripheral_nativeReg
     env: JNIEnv,
     class: JClass,
 ) {
+    if let Err(error) = btleplug::platform::init(&env) {
+        eprintln!("[ble-android] btleplug init failed: {error}");
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_describe();
+            let _ = env.exception_clear();
+        }
+    }
     if let Ok(vm) = env.get_java_vm() {
         let _ = JVM.set(vm);
     }
-    if let Ok(global) = env.new_global_ref(&class) {
+    if let Ok(global) = env.new_global_ref(class) {
         let _ = CLASS.set(global);
     }
     eprintln!("[ble-android] registered JVM + class");
@@ -30,9 +38,9 @@ pub extern "system" fn Java_com_auser_app_1ble_1mesh_BleMeshPeripheral_nativeReg
 pub extern "system" fn Java_com_auser_app_1ble_1mesh_BleMeshPeripheral_nativeOnFrame(
     env: JNIEnv,
     _class: JClass,
-    data: JByteArray,
+    data: jbyteArray,
 ) {
-    let Ok(bytes) = env.convert_byte_array(&data) else {
+    let Ok(bytes) = env.convert_byte_array(data) else {
         return;
     };
     if let Ok(guard) = APP.lock() {
@@ -63,15 +71,16 @@ pub fn start(app: AppHandle) {
 
 pub fn send(data: Vec<u8>) -> Result<(), String> {
     let jvm = JVM.get().ok_or("ble-android: not registered")?;
-    let mut env = jvm
+    let env = jvm
         .attach_current_thread()
         .map_err(|error| error.to_string())?;
     let class = CLASS.get().ok_or("ble-android: no class")?;
-    let cls = unsafe { JClass::from_raw(class.as_raw()) };
+    let cls = JClass::from(class.as_obj());
     let arr = env
         .byte_array_from_slice(&data)
         .map_err(|error| error.to_string())?;
-    env.call_static_method(&cls, "send", "([B)V", &[JValue::Object(&arr)])
+    let arr = JObject::from(arr);
+    env.call_static_method(cls, "send", "([B)V", &[JValue::Object(arr)])
         .map_err(|error| error.to_string())?;
     Ok(())
 }
@@ -83,12 +92,12 @@ pub fn stop() {
 
 fn call_static_void(name: &str) -> Result<(), String> {
     let jvm = JVM.get().ok_or("ble-android: not registered")?;
-    let mut env = jvm
+    let env = jvm
         .attach_current_thread()
         .map_err(|error| error.to_string())?;
     let class = CLASS.get().ok_or("ble-android: no class")?;
-    let cls = unsafe { JClass::from_raw(class.as_raw()) };
-    env.call_static_method(&cls, name, "()V", &[])
+    let cls = JClass::from(class.as_obj());
+    env.call_static_method(cls, name, "()V", &[])
         .map_err(|error| error.to_string())?;
     Ok(())
 }
