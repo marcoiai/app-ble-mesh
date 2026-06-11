@@ -6,6 +6,8 @@ use btleplug::platform::Manager;
 mod ble;
 #[cfg(target_os = "android")]
 mod ble_android;
+#[cfg(target_os = "macos")]
+mod ble_macos;
 mod protocol;
 
 #[tauri::command]
@@ -24,6 +26,60 @@ fn android_peripheral_send(data: Vec<u8>) -> Result<String, String> {
         let _ = data;
         Err("Android peripheral is only available on Android".to_string())
     }
+}
+
+#[tauri::command]
+fn macos_peripheral_start(app: tauri::AppHandle) -> Result<MacosPeripheralStatusOut, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = ble_macos::start(app)?;
+        return Ok(MacosPeripheralStatusOut {
+            running: status.running,
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("macOS peripheral is only available on macOS".to_string())
+    }
+}
+
+#[tauri::command]
+fn macos_peripheral_stop() -> Result<MacosPeripheralStatusOut, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = ble_macos::stop()?;
+        return Ok(MacosPeripheralStatusOut {
+            running: status.running,
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("macOS peripheral is only available on macOS".to_string())
+    }
+}
+
+#[tauri::command]
+fn macos_peripheral_status() -> MacosPeripheralStatusOut {
+    #[cfg(target_os = "macos")]
+    {
+        let status = ble_macos::status();
+        return MacosPeripheralStatusOut {
+            running: status.running,
+        };
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        MacosPeripheralStatusOut { running: false }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct MacosPeripheralStatusOut {
+    running: bool,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -64,6 +120,9 @@ pub fn run() {
             ble::protocol_node_info,
             ble::disconnect_device,
             ble::start_hardware_mesh_scan,
+            macos_peripheral_start,
+            macos_peripheral_stop,
+            macos_peripheral_status,
             android_peripheral_send
         ])
         .run(tauri::generate_context!())

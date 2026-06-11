@@ -655,6 +655,68 @@ pub async fn handle_android_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
     );
 }
 
+#[cfg(target_os = "macos")]
+pub async fn handle_macos_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
+    use tauri::Manager;
+
+    let state = app.state::<BleState>();
+    let frame = {
+        let mut cache = state.cache.lock().unwrap();
+        match protocol::ingest_transport_packet(&mut cache.reassembly_cache, &bytes) {
+            Ok(Some(frame)) => frame,
+            Ok(None) => return,
+            Err(_) => return,
+        }
+    };
+
+    let decision = {
+        let mut cache = state.cache.lock().unwrap();
+        protocol::process_incoming(&mut cache.relay_cache, state.node_addr, frame.clone())
+    };
+
+    if decision.deliver_locally {
+        emit_protocol_frame(&app, frame.clone());
+
+        if frame.opcode == protocol::OPCODE_PING {
+            let pong = ProtocolFrame {
+                src_addr: state.node_addr,
+                dst_addr: frame.src_addr,
+                ttl: 3,
+                sequence_number: next_sequence(&state.sequence),
+                opcode: protocol::OPCODE_PONG,
+                payload: frame.payload.clone(),
+                checksum: 0,
+            };
+            let packets = protocol::encode_for_ble_transport(&pong);
+            for packet in &packets {
+                let _ = crate::ble_macos::send(packet.clone());
+            }
+            emit_protocol_transport(&app, pong.sequence_number, &packets);
+        }
+    }
+
+    let Some(relay_frame) = decision.relay_frame else {
+        return;
+    };
+
+    let packets = protocol::encode_for_ble_transport(&relay_frame);
+    for packet in &packets {
+        let _ = crate::ble_macos::send(packet.clone());
+    }
+    let _ = app.emit(
+        "protocol-relay",
+        ProtocolRelayPayload {
+            src_addr: relay_frame.src_addr,
+            dst_addr: relay_frame.dst_addr,
+            sequence_number: relay_frame.sequence_number,
+            ttl: relay_frame.ttl,
+            target_device_id: "macos-subscribers".to_string(),
+            char_uuid: "0000fee1-0000-1000-8000-00805f9b34fb".to_string(),
+            bytes_len: packets.iter().map(Vec::len).sum(),
+        },
+    );
+}
+
 async fn write_protocol_bytes_to_peripheral(
     peripheral: &Peripheral,
     char_uuid: &str,

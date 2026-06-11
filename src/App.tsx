@@ -68,6 +68,10 @@ interface ProtocolTransportPayload {
   bytes_len: number;
 }
 
+interface PeripheralStatus {
+  running: boolean;
+}
+
 interface MeshStats {
   pingsSent: number;
   pongsReceived: number;
@@ -93,6 +97,7 @@ function App() {
   const [writeText, setWriteText] = useState("Hello");
   const [nodeAddr, setNodeAddr] = useState<number | null>(null);
   const [feedOnly, setFeedOnly] = useState(false);
+  const [macAdvertise, setMacAdvertise] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [meshStats, setMeshStats] = useState<MeshStats>({
     pingsSent: 0,
@@ -115,6 +120,7 @@ function App() {
     let unlistenProtocol: (() => void) | undefined;
     let unlistenRelay: (() => void) | undefined;
     let unlistenTransport: (() => void) | undefined;
+    let unlistenMacPeripheral: (() => void) | undefined;
     (async () => {
       invoke<ProtocolNodeInfo>("protocol_node_info")
         .then((info) => {
@@ -173,12 +179,19 @@ function App() {
           `🧩 TRANSPORT seq=${t.sequence_number} packets=${t.packet_count} bytes=${t.bytes_len}`
         );
       });
+      unlistenMacPeripheral = await listen<string>("macos-peripheral-log", (event) => {
+        addLog(`📣 MAC ADV ${event.payload}`);
+      });
+      invoke<PeripheralStatus>("macos_peripheral_status")
+        .then((status) => setMacAdvertise(status.running))
+        .catch(() => setMacAdvertise(false));
     })();
     return () => {
       unlisten?.();
       unlistenProtocol?.();
       unlistenRelay?.();
       unlistenTransport?.();
+      unlistenMacPeripheral?.();
     };
   }, []);
 
@@ -197,6 +210,18 @@ function App() {
       addLog(`❌ Scan failed: ${e}`);
     } finally {
       setIsScanning(false);
+    }
+  };
+
+  const handleToggleMacAdvertise = async () => {
+    try {
+      const status = await invoke<PeripheralStatus>(
+        macAdvertise ? "macos_peripheral_stop" : "macos_peripheral_start"
+      );
+      setMacAdvertise(status.running);
+      addLog(status.running ? "📣 This Mac is advertising 0xFEED" : "📣 Mac advertising stopped");
+    } catch (e) {
+      addLog(`❌ Mac advertise failed: ${e}`);
     }
   };
 
@@ -305,8 +330,7 @@ function App() {
     <main style={{ padding: 20, fontFamily: "sans-serif", maxWidth: 900, margin: "0 auto" }}>
       <h1 style={{ marginBottom: 4 }}>Agnostic BLE — Connection</h1>
       <p style={{ color: "#666", marginTop: 0 }}>
-        Scan for the Android 0xFEED peripheral → connect → ping over off-grid BLE.
-        Mac-to-Mac direct discovery is not enabled yet.
+        Advertise this Mac or scan for another 0xFEED node → connect → ping over off-grid BLE.
         {nodeAddr != null && (
           <span style={{ marginLeft: 8, fontFamily: "monospace" }}>
             node={nodeAddr}
@@ -317,6 +341,19 @@ function App() {
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
         {/* Coluna esquerda: descoberta de dispositivos */}
         <section style={{ flex: 1 }}>
+          <button
+            onClick={handleToggleMacAdvertise}
+            style={btn(macAdvertise ? "#d9534f" : "#111")}
+          >
+            {macAdvertise ? "Stop advertising this Mac" : "Advertise this Mac"}
+          </button>
+
+          <div style={{ marginTop: 8, fontSize: 12, color: macAdvertise ? "#1f7a1f" : "#777" }}>
+            {macAdvertise
+              ? "This Mac should be visible as app-ble-mesh / 0xFEED."
+              : "Start advertising on one Mac, then scan from the other."}
+          </div>
+
           <button onClick={handleScan} disabled={isScanning} style={btn("#5cb85c")}>
             {isScanning ? "Scanning..." : "Scan for devices"}
           </button>
