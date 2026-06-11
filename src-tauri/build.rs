@@ -11,7 +11,7 @@ fn main() {
 
         println!("cargo:rerun-if-changed={}", source.display());
 
-        let status = Command::new("swiftc")
+        let output = Command::new("swiftc")
             .arg(&source)
             .arg("-o")
             .arg(&binary)
@@ -19,11 +19,16 @@ fn main() {
             .arg("CoreBluetooth")
             .arg("-framework")
             .arg("Foundation")
-            .status()
+            .output()
             .expect("failed to run swiftc for macOS BLE peripheral helper");
 
-        if !status.success() {
-            panic!("swiftc failed while building macOS BLE peripheral helper");
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            panic!(
+                "swiftc failed while building macOS BLE peripheral helper\nstdout:\n{}\nstderr:\n{}",
+                stdout, stderr
+            );
         }
 
         println!("cargo:rustc-env=MACOS_BLE_HELPER={}", binary.display());

@@ -88,7 +88,7 @@ final class MeshPeripheral: NSObject, CBPeripheralManagerDelegate {
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?) {
-        if let error {
+        if let error = error {
             emit("ERROR add-service \(error.localizedDescription)")
             return
         }
@@ -100,7 +100,7 @@ final class MeshPeripheral: NSObject, CBPeripheralManagerDelegate {
     }
 
     func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
-        if let error {
+        if let error = error {
             emit("ERROR advertise \(error.localizedDescription)")
         } else {
             emit("STATE advertising-started")
