@@ -82,6 +82,22 @@ struct MacosPeripheralStatusOut {
     running: bool,
 }
 
+#[tauri::command]
+fn runtime_platform() -> &'static str {
+    #[cfg(target_os = "android")]
+    {
+        return "android";
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return "macos";
+    }
+    #[cfg(not(any(target_os = "android", target_os = "macos")))]
+    {
+        "desktop"
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let manager = tauri::async_runtime::block_on(async {
@@ -123,7 +139,8 @@ pub fn run() {
             macos_peripheral_start,
             macos_peripheral_stop,
             macos_peripheral_status,
-            android_peripheral_send
+            android_peripheral_send,
+            runtime_platform
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

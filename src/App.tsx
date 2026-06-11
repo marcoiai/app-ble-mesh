@@ -98,6 +98,7 @@ function App() {
   const [nodeAddr, setNodeAddr] = useState<number | null>(null);
   const [feedOnly, setFeedOnly] = useState(false);
   const [macAdvertise, setMacAdvertise] = useState(false);
+  const [runtimePlatform, setRuntimePlatform] = useState("unknown");
   const [logs, setLogs] = useState<string[]>([]);
   const [meshStats, setMeshStats] = useState<MeshStats>({
     pingsSent: 0,
@@ -128,6 +129,14 @@ function App() {
           addLog(`🧬 Protocol node addr: ${info.node_addr}`);
         })
         .catch((e) => addLog(`⚠️ Protocol node info failed: ${e}`));
+      invoke<string>("runtime_platform")
+        .then((platform) => {
+          setRuntimePlatform(platform);
+          if (platform === "android") {
+            addLog("📣 Android BLE peripheral starts automatically.");
+          }
+        })
+        .catch(() => setRuntimePlatform("unknown"));
       unlisten = await listen<NotificationPayload>("ble-notification", (event) => {
         const { char_uuid, value } = event.payload;
         const ascii = value
@@ -182,8 +191,14 @@ function App() {
       unlistenMacPeripheral = await listen<string>("macos-peripheral-log", (event) => {
         addLog(`📣 MAC ADV ${event.payload}`);
       });
-      invoke<PeripheralStatus>("macos_peripheral_status")
-        .then((status) => setMacAdvertise(status.running))
+      invoke<string>("runtime_platform")
+        .then((platform) => {
+          if (platform === "macos") {
+            invoke<PeripheralStatus>("macos_peripheral_status")
+              .then((status) => setMacAdvertise(status.running))
+              .catch(() => setMacAdvertise(false));
+          }
+        })
         .catch(() => setMacAdvertise(false));
     })();
     return () => {
@@ -214,6 +229,10 @@ function App() {
   };
 
   const handleToggleMacAdvertise = async () => {
+    if (runtimePlatform !== "macos") {
+      addLog("📣 This device advertises automatically; macOS helper is not used here.");
+      return;
+    }
     try {
       const status = await invoke<PeripheralStatus>(
         macAdvertise ? "macos_peripheral_stop" : "macos_peripheral_start"
@@ -330,7 +349,7 @@ function App() {
     <main style={{ padding: 20, fontFamily: "sans-serif", maxWidth: 900, margin: "0 auto" }}>
       <h1 style={{ marginBottom: 4 }}>Agnostic BLE — Connection</h1>
       <p style={{ color: "#666", marginTop: 0 }}>
-        Advertise this Mac or scan for another 0xFEED node → connect → ping over off-grid BLE.
+        Advertise or scan for another 0xFEED node → connect → ping over off-grid BLE.
         {nodeAddr != null && (
           <span style={{ marginLeft: 8, fontFamily: "monospace" }}>
             node={nodeAddr}
@@ -341,18 +360,28 @@ function App() {
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
         {/* Coluna esquerda: descoberta de dispositivos */}
         <section style={{ flex: 1 }}>
-          <button
-            onClick={handleToggleMacAdvertise}
-            style={btn(macAdvertise ? "#d9534f" : "#111")}
-          >
-            {macAdvertise ? "Stop advertising this Mac" : "Advertise this Mac"}
-          </button>
+          {runtimePlatform === "macos" ? (
+            <>
+              <button
+                onClick={handleToggleMacAdvertise}
+                style={btn(macAdvertise ? "#d9534f" : "#111")}
+              >
+                {macAdvertise ? "Stop advertising this Mac" : "Advertise this Mac"}
+              </button>
 
-          <div style={{ marginTop: 8, fontSize: 12, color: macAdvertise ? "#1f7a1f" : "#777" }}>
-            {macAdvertise
-              ? "This Mac should be visible as app-ble-mesh / 0xFEED."
-              : "Start advertising on one Mac, then scan from the other."}
-          </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: macAdvertise ? "#1f7a1f" : "#777" }}>
+                {macAdvertise
+                  ? "This Mac should be visible as app-ble-mesh / 0xFEED."
+                  : "Start advertising on one Mac, then scan from the other."}
+              </div>
+            </>
+          ) : (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#1f7a1f" }}>
+              {runtimePlatform === "android"
+                ? "This Android advertises 0xFEED automatically while the app is open."
+                : "Advertising status is managed by this platform."}
+            </div>
+          )}
 
           <button onClick={handleScan} disabled={isScanning} style={btn("#5cb85c")}>
             {isScanning ? "Scanning..." : "Scan for devices"}
