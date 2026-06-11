@@ -104,6 +104,7 @@ function App() {
   });
   const logRef = useRef<HTMLDivElement>(null);
   const pendingPings = useRef<Map<number, number>>(new Map());
+  const canSendMesh = connectedId != null && writeUuid.length > 0;
 
   const addLog = (msg: string) =>
     setLogs((prev) => [...prev, `${new Date().toLocaleTimeString()}  ${msg}`]);
@@ -304,7 +305,8 @@ function App() {
     <main style={{ padding: 20, fontFamily: "sans-serif", maxWidth: 900, margin: "0 auto" }}>
       <h1 style={{ marginBottom: 4 }}>Agnostic BLE — Connection</h1>
       <p style={{ color: "#666", marginTop: 0 }}>
-        Scan → connect → discover services → exchange protocol frames over off-grid GATT.
+        Scan for the Android 0xFEED peripheral → connect → ping over off-grid BLE.
+        Mac-to-Mac direct discovery is not enabled yet.
         {nodeAddr != null && (
           <span style={{ marginLeft: 8, fontFamily: "monospace" }}>
             node={nodeAddr}
@@ -440,26 +442,49 @@ function App() {
                 </button>
               </div>
 
-              <h3>Mesh proof</h3>
-              <div style={{ ...card(false), background: "#f7fbf8" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
-                  <strong>Ping sent: {meshStats.pingsSent}</strong>
-                  <strong>Pong recv: {meshStats.pongsReceived}</strong>
-                  <span>Relays: {meshStats.relays}</span>
-                  <span>
-                    RTT: {meshStats.lastRttMs == null ? "waiting" : `${meshStats.lastRttMs}ms`}
-                  </span>
-                  <span>Packets: {meshStats.lastPackets}</span>
-                  <span>Bytes: {meshStats.lastBytes}</span>
-                </div>
-                <button onClick={handleMeshPing} style={{ ...btn("#111"), marginTop: 10 }}>
-                  Ping mesh
-                </button>
-              </div>
             </>
           ) : (
-            <p style={{ color: "#999" }}>Connect to a device to see its services.</p>
+            <p style={{ color: "#999" }}>
+              Connect to the Android 0xFEED device to see services and enable protocol sends.
+            </p>
           )}
+
+          <h3>Mesh proof</h3>
+          <div style={{ ...card(false), background: "#f7fbf8" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
+                fontSize: 12,
+              }}
+            >
+              <strong>Ping sent: {meshStats.pingsSent}</strong>
+              <strong>Pong recv: {meshStats.pongsReceived}</strong>
+              <span>Relays: {meshStats.relays}</span>
+              <span>
+                RTT: {meshStats.lastRttMs == null ? "waiting" : `${meshStats.lastRttMs}ms`}
+              </span>
+              <span>Packets: {meshStats.lastPackets}</span>
+              <span>Bytes: {meshStats.lastBytes}</span>
+            </div>
+            <button
+              onClick={handleMeshPing}
+              disabled={!canSendMesh}
+              style={{
+                ...btn(canSendMesh ? "#111" : "#777"),
+                marginTop: 10,
+                cursor: canSendMesh ? "pointer" : "not-allowed",
+              }}
+            >
+              Ping mesh
+            </button>
+            {!canSendMesh && (
+              <div style={{ marginTop: 8, color: "#777", fontSize: 12 }}>
+                Waiting for a connected writable 0xFEED characteristic.
+              </div>
+            )}
+          </div>
         </section>
       </div>
 
