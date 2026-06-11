@@ -10,6 +10,7 @@ import android.bluetooth.BluetoothGattServerCallback
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
@@ -123,11 +124,16 @@ object BleMeshPeripheral {
     @JvmStatic
     fun send(data: ByteArray) {
         val devices = synchronized(subscribed) { subscribed.toList() }
+        if (devices.isEmpty()) {
+            Log.w(TAG, "send: no subscribed centrals for ${data.size} byte(s)")
+            return
+        }
         synchronized(notifyQueues) {
             for (device in devices) {
                 val key = device.address
                 val queue = notifyQueues.getOrPut(key) { ArrayDeque() }
                 queue.add(data.copyOf())
+                Log.d(TAG, "send: queued ${data.size} byte(s) for $key, queue=${queue.size}")
                 pumpNotifyLocked(device)
             }
         }
@@ -160,13 +166,21 @@ object BleMeshPeripheral {
         notifying.add(key)
 
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                server.notifyCharacteristicChanged(device, ch, false, data)
+            val accepted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                server.notifyCharacteristicChanged(device, ch, false, data) == BluetoothStatusCodes.SUCCESS
             } else {
                 @Suppress("DEPRECATION")
                 ch.value = data
                 @Suppress("DEPRECATION")
                 server.notifyCharacteristicChanged(device, ch, false)
+            }
+            if (!accepted) {
+                notifying.remove(key)
+                queue.pollFirst()
+                Log.w(TAG, "notify not accepted for $key, dropped ${data.size} byte(s)")
+                pumpNotifyLocked(device)
+            } else {
+                Log.d(TAG, "notify accepted for $key, ${data.size} byte(s)")
             }
         } catch (t: Throwable) {
             notifying.remove(key)
@@ -223,15 +237,19 @@ object BleMeshPeripheral {
             offset: Int,
             value: ByteArray,
         ) {
+            Log.d(
+                TAG,
+                "write ${device.address} uuid=${characteristic.uuid} len=${value.size} response=$responseNeeded offset=$offset prepared=$preparedWrite",
+            )
+            if (responseNeeded) {
+                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
+            }
             if (characteristic.uuid == CHAR_UUID && value.isNotEmpty()) {
                 try {
                     nativeOnFrame(value)
                 } catch (t: Throwable) {
                     Log.e(TAG, "nativeOnFrame failed", t)
                 }
-            }
-            if (responseNeeded) {
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
             }
         }
 
@@ -244,10 +262,15 @@ object BleMeshPeripheral {
             offset: Int,
             value: ByteArray,
         ) {
+            Log.d(
+                TAG,
+                "descriptor write ${device.address} uuid=${descriptor.uuid} len=${value.size} response=$responseNeeded offset=$offset prepared=$preparedWrite value=${value.joinToString("") { "%02x".format(it) }}",
+            )
             if (descriptor.uuid == CCCD_UUID && value.isNotEmpty()) {
                 val enableNotify = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                 synchronized(subscribed) {
                     if (enableNotify) subscribed.add(device) else subscribed.remove(device)
+                    Log.i(TAG, "subscription ${device.address} notify=$enableNotify total=${subscribed.size}")
                 }
                 if (!enableNotify) {
                     synchronized(notifyQueues) {

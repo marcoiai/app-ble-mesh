@@ -67,7 +67,10 @@ async fn find_peripheral_for_connect(adapter: &Adapter, id: &str) -> Result<Peri
     tokio::time::sleep(Duration::from_millis(2500)).await;
 
     peripherals = adapter.peripherals().await.map_err(|e| e.to_string())?;
-    let peripheral = peripherals.iter().find(|p| p.id().to_string() == id).cloned();
+    let peripheral = peripherals
+        .iter()
+        .find(|p| p.id().to_string() == id)
+        .cloned();
     if let Some(peripheral) = peripheral {
         return Ok(peripheral);
     }
@@ -346,10 +349,13 @@ pub async fn write_characteristic(
         .find(|c| c.uuid.to_string() == char_uuid)
         .ok_or_else(|| "Characteristic not found on this device.".to_string())?;
 
-    let write_type = if characteristic.properties.contains(CharPropFlags::WRITE) {
-        WriteType::WithResponse
-    } else {
+    let write_type = if characteristic
+        .properties
+        .contains(CharPropFlags::WRITE_WITHOUT_RESPONSE)
+    {
         WriteType::WithoutResponse
+    } else {
+        WriteType::WithResponse
     };
 
     peripheral
@@ -503,10 +509,28 @@ async fn handle_protocol_bytes(
         let mut cache = cache.lock().unwrap();
         match protocol::ingest_transport_packet(&mut cache.reassembly_cache, bytes) {
             Ok(Some(frame)) => frame,
-            Ok(None) => return,
-            Err(_) => return,
+            Ok(None) => {
+                println!(
+                    "[BLE RX] buffered transport chunk ({} byte(s))",
+                    bytes.len()
+                );
+                return;
+            }
+            Err(e) => {
+                println!("[BLE RX] failed to ingest transport packet: {e}");
+                return;
+            }
         }
     };
+
+    println!(
+        "[BLE RX] frame opcode={} src={} dst={} seq={} payload={} byte(s)",
+        frame.opcode,
+        frame.src_addr,
+        frame.dst_addr,
+        frame.sequence_number,
+        frame.payload.len()
+    );
 
     process_completed_frame(
         app,
@@ -659,7 +683,9 @@ pub async fn handle_android_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
             };
             let packets = protocol::encode_for_ble_transport(&pong);
             for packet in &packets {
-                let _ = crate::ble_android::send(packet.clone());
+                if let Err(e) = crate::ble_android::send(packet.clone()) {
+                    println!("[BLE Android TX] failed to notify pong packet: {e}");
+                }
             }
             emit_protocol_transport(&app, pong.sequence_number, &packets);
         }
@@ -671,7 +697,9 @@ pub async fn handle_android_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
 
     let packets = protocol::encode_for_ble_transport(&relay_frame);
     for packet in &packets {
-        let _ = crate::ble_android::send(packet.clone());
+        if let Err(e) = crate::ble_android::send(packet.clone()) {
+            println!("[BLE Android TX] failed to notify relay packet: {e}");
+        }
     }
     let _ = app.emit(
         "protocol-relay",
@@ -760,10 +788,13 @@ async fn write_protocol_bytes_to_peripheral(
         .find(|c| c.uuid.to_string() == char_uuid)
         .ok_or_else(|| "Characteristic not found on relay target.".to_string())?;
 
-    let write_type = if characteristic.properties.contains(CharPropFlags::WRITE) {
-        WriteType::WithResponse
-    } else {
+    let write_type = if characteristic
+        .properties
+        .contains(CharPropFlags::WRITE_WITHOUT_RESPONSE)
+    {
         WriteType::WithoutResponse
+    } else {
+        WriteType::WithResponse
     };
 
     peripheral
