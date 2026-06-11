@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { BleCoreMeshDemo } from "./BleCoreMeshDemo";
+import { LevelPackBench } from "./LevelPackBench";
 import { ProtocolCoreDemo } from "./ProtocolCoreDemo";
 import "./App.css";
 
@@ -387,6 +388,7 @@ function App() {
       </p>
 
       <ProtocolCoreDemo />
+      <LevelPackBench />
       <BleCoreMeshDemo
         runtimePlatform={runtimePlatform}
         connectedId={connectedId}

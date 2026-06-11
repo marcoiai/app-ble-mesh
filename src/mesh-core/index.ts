@@ -28,6 +28,8 @@ export { toLevelupSnapshot } from './mesh/levelup-bridge.ts';
 export { createSecureChannel } from './mesh/secure.ts';
 export type { SecureChannel } from './mesh/secure.ts';
 export { gzipValue, gunzipValue, compressionSupported } from './mesh/compress.ts';
+export { levelPack, levelUnpack, levelPackStats, jsonSize } from './mesh/levelpack.ts';
+export type { LevelPackStats } from './mesh/levelpack.ts';
 export { createInvite, acceptInvite, peekInvite } from './mesh/invite.ts';
 export type { MeshInvite } from './mesh/invite.ts';
 
