@@ -98,12 +98,40 @@ object BleMeshPeripheral {
         )
         val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
         service.addCharacteristic(ch)
-        server.addService(service)
         gattServer = server
         characteristic = ch
 
+        Log.i(TAG, "adding GATT service $SERVICE_UUID")
+        if (!server.addService(service)) {
+            Log.e(TAG, "start: addService returned false")
+            return
+        }
+    }
+
+    private fun startAdvertising() {
+        val ctx = appContext ?: run {
+            Log.w(TAG, "startAdvertising: no context")
+            return
+        }
+        if (advertiser != null) {
+            Log.d(TAG, "startAdvertising: already advertising")
+            return
+        }
+        if (!hasPermissions(ctx)) {
+            Log.w(TAG, "startAdvertising: BLE permissions missing")
+            return
+        }
+        val manager = ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+            ?: run {
+                Log.w(TAG, "startAdvertising: no BluetoothManager")
+                return
+            }
+        val adapter = manager.adapter ?: run {
+            Log.w(TAG, "startAdvertising: no Bluetooth adapter")
+            return
+        }
         val leAdvertiser = adapter.bluetoothLeAdvertiser ?: run {
-            Log.w(TAG, "start: LE advertiser unavailable")
+            Log.w(TAG, "startAdvertising: LE advertiser unavailable")
             return
         }
         val settings = AdvertiseSettings.Builder()
@@ -213,6 +241,13 @@ object BleMeshPeripheral {
     }
 
     private val gattCallback = object : BluetoothGattServerCallback() {
+        override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+            Log.i(TAG, "service added ${service.uuid}: $status")
+            if (service.uuid == SERVICE_UUID && status == BluetoothGatt.GATT_SUCCESS) {
+                startAdvertising()
+            }
+        }
+
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             synchronized(connected) {
                 if (newState == BluetoothProfile.STATE_CONNECTED) connected.add(device)

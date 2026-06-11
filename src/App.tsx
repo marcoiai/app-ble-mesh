@@ -14,6 +14,7 @@ interface DeviceInfo {
 
 // Serviço anunciado pelo levelup (0xFEED na forma curta).
 const FEED_UUID = "0000feed-0000-1000-8000-00805f9b34fb";
+const FEED_CHAR_UUID = "0000fee1-0000-1000-8000-00805f9b34fb";
 const advertisesFeed = (d: DeviceInfo) =>
   d.services.some((u) => u.toLowerCase() === FEED_UUID);
 const OPCODE_PING = 2;
@@ -258,8 +259,11 @@ function App() {
       const charCount = svcs.reduce((n, s) => n + s.characteristics.length, 0);
       addLog(`✅ Connected. ${svcs.length} service(s), ${charCount} characteristic(s).`);
       // Pré-seleciona a primeira característica gravável para conveniência.
-      const firstWritable = svcs
-        .flatMap((s) => s.characteristics)
+      const allCharacteristics = svcs.flatMap((s) => s.characteristics);
+      const feedWritable = allCharacteristics.find(
+        (c) => c.write && c.uuid.toLowerCase() === FEED_CHAR_UUID
+      );
+      const firstWritable = feedWritable ?? allCharacteristics
         .find((c) => c.write);
       if (firstWritable) setWriteUuid(firstWritable.uuid);
     } catch (e) {

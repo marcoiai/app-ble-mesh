@@ -254,6 +254,15 @@ pub async fn connect_device(
     for service in peripheral.services() {
         let mut chars: Vec<CharacteristicInfo> = Vec::new();
         for c in service.characteristics {
+            println!(
+                "[CONNECT] characteristic {} read={} write={} write_no_resp={} notify={} indicate={}",
+                c.uuid,
+                c.properties.contains(CharPropFlags::READ),
+                c.properties.contains(CharPropFlags::WRITE),
+                c.properties.contains(CharPropFlags::WRITE_WITHOUT_RESPONSE),
+                c.properties.contains(CharPropFlags::NOTIFY),
+                c.properties.contains(CharPropFlags::INDICATE)
+            );
             chars.push(CharacteristicInfo {
                 uuid: c.uuid.to_string(),
                 read: c.properties.contains(CharPropFlags::READ),
@@ -269,13 +278,32 @@ pub async fn connect_device(
         });
     }
 
+    let notification_stream = peripheral.notifications().await;
+
     // Auto-inscreve em tudo que suporta notificação/indicação.
     for c in peripheral.characteristics() {
         if c.properties.contains(CharPropFlags::NOTIFY)
             || c.properties.contains(CharPropFlags::INDICATE)
         {
-            if let Err(e) = peripheral.subscribe(&c).await {
-                println!("[CONNECT] Could not subscribe to {}: {}", c.uuid, e);
+            let mut subscribed = false;
+            for attempt in 1..=3 {
+                match peripheral.subscribe(&c).await {
+                    Ok(()) => {
+                        println!("[CONNECT] Subscribed to {} on attempt {}", c.uuid, attempt);
+                        subscribed = true;
+                        break;
+                    }
+                    Err(e) => {
+                        println!(
+                            "[CONNECT] Could not subscribe to {} on attempt {}: {}",
+                            c.uuid, attempt, e
+                        );
+                        tokio::time::sleep(Duration::from_millis(250)).await;
+                    }
+                }
+            }
+            if !subscribed {
+                println!("[CONNECT] Giving up subscribe to {}", c.uuid);
             }
         }
     }
@@ -294,7 +322,7 @@ pub async fn connect_device(
     let cache_clone = state.cache.clone();
     let connected_clone = state.connected.clone();
     let sequence_clone = state.sequence.clone();
-    if let Ok(mut stream) = peripheral.notifications().await {
+    if let Ok(mut stream) = notification_stream {
         tokio::spawn(async move {
             while let Some(n) = stream.next().await {
                 handle_protocol_bytes(
