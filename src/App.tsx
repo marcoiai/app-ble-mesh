@@ -16,6 +16,8 @@ interface DeviceInfo {
 const FEED_UUID = "0000feed-0000-1000-8000-00805f9b34fb";
 const advertisesFeed = (d: DeviceInfo) =>
   d.services.some((u) => u.toLowerCase() === FEED_UUID);
+const OPCODE_PING = 2;
+const OPCODE_PONG = 3;
 
 interface CharacteristicInfo {
   uuid: string;
@@ -35,6 +37,46 @@ interface NotificationPayload {
   value: number[];
 }
 
+interface ProtocolNodeInfo {
+  node_addr: number;
+}
+
+interface ProtocolFrameOut {
+  src_addr: number;
+  dst_addr: number;
+  ttl: number;
+  sequence_number: number;
+  opcode: number;
+  payload_text: string;
+  payload_len: number;
+  checksum: number;
+}
+
+interface ProtocolRelayPayload {
+  src_addr: number;
+  dst_addr: number;
+  sequence_number: number;
+  ttl: number;
+  target_device_id: string;
+  char_uuid: string;
+  bytes_len: number;
+}
+
+interface ProtocolTransportPayload {
+  sequence_number: number;
+  packet_count: number;
+  bytes_len: number;
+}
+
+interface MeshStats {
+  pingsSent: number;
+  pongsReceived: number;
+  relays: number;
+  lastRttMs: number | null;
+  lastPackets: number;
+  lastBytes: number;
+}
+
 function shortUuid(uuid: string): string {
   // Mostra a forma curta 16-bit quando for um UUID Bluetooth padrão.
   const m = uuid.match(/^0000([0-9a-fA-F]{4})-0000-1000-8000-00805f9b34fb$/);
@@ -49,9 +91,19 @@ function App() {
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [writeUuid, setWriteUuid] = useState("");
   const [writeText, setWriteText] = useState("Hello");
+  const [nodeAddr, setNodeAddr] = useState<number | null>(null);
   const [feedOnly, setFeedOnly] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
+  const [meshStats, setMeshStats] = useState<MeshStats>({
+    pingsSent: 0,
+    pongsReceived: 0,
+    relays: 0,
+    lastRttMs: null,
+    lastPackets: 0,
+    lastBytes: 0,
+  });
   const logRef = useRef<HTMLDivElement>(null);
+  const pendingPings = useRef<Map<number, number>>(new Map());
 
   const addLog = (msg: string) =>
     setLogs((prev) => [...prev, `${new Date().toLocaleTimeString()}  ${msg}`]);
@@ -59,7 +111,16 @@ function App() {
   // Escuta notificações (dados recebidos) vindas dos dispositivos conectados.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let unlistenProtocol: (() => void) | undefined;
+    let unlistenRelay: (() => void) | undefined;
+    let unlistenTransport: (() => void) | undefined;
     (async () => {
+      invoke<ProtocolNodeInfo>("protocol_node_info")
+        .then((info) => {
+          setNodeAddr(info.node_addr);
+          addLog(`🧬 Protocol node addr: ${info.node_addr}`);
+        })
+        .catch((e) => addLog(`⚠️ Protocol node info failed: ${e}`));
       unlisten = await listen<NotificationPayload>("ble-notification", (event) => {
         const { char_uuid, value } = event.payload;
         const ascii = value
@@ -69,8 +130,55 @@ function App() {
           `📥 NOTIFY ${shortUuid(char_uuid)} → [${value.join(", ")}]  "${ascii}"`
         );
       });
+      unlistenProtocol = await listen<ProtocolFrameOut>("protocol-frame", (event) => {
+        const f = event.payload;
+        if (f.opcode === OPCODE_PONG) {
+          const parts = f.payload_text.split(":");
+          const pingSeq = Number(parts[1]);
+          const sentAt = Number(parts[2]);
+          const started = pendingPings.current.get(pingSeq) ?? sentAt;
+          pendingPings.current.delete(pingSeq);
+          const rtt = Date.now() - started;
+          setMeshStats((prev) => ({
+            ...prev,
+            pongsReceived: prev.pongsReceived + 1,
+            lastRttMs: rtt,
+          }));
+          addLog(`🏓 PONG from=${f.src_addr} pingSeq=${pingSeq} rtt=${rtt}ms`);
+          return;
+        }
+        if (f.opcode === OPCODE_PING) {
+          addLog(`📍 PING from=${f.src_addr} seq=${f.sequence_number}; auto-pong should answer`);
+        }
+        addLog(
+          `🧭 PROTOCOL src=${f.src_addr} dst=${f.dst_addr} ttl=${f.ttl} seq=${f.sequence_number} op=${f.opcode} len=${f.payload_len} "${f.payload_text}"`
+        );
+      });
+      unlistenRelay = await listen<ProtocolRelayPayload>("protocol-relay", (event) => {
+        const r = event.payload;
+        setMeshStats((prev) => ({ ...prev, relays: prev.relays + 1 }));
+        addLog(
+          `🔁 RELAY src=${r.src_addr} dst=${r.dst_addr} seq=${r.sequence_number} ttl=${r.ttl} → ${shortUuid(r.char_uuid)} bytes=${r.bytes_len}`
+        );
+      });
+      unlistenTransport = await listen<ProtocolTransportPayload>("protocol-transport", (event) => {
+        const t = event.payload;
+        setMeshStats((prev) => ({
+          ...prev,
+          lastPackets: t.packet_count,
+          lastBytes: t.bytes_len,
+        }));
+        addLog(
+          `🧩 TRANSPORT seq=${t.sequence_number} packets=${t.packet_count} bytes=${t.bytes_len}`
+        );
+      });
     })();
-    return () => unlisten?.();
+    return () => {
+      unlisten?.();
+      unlistenProtocol?.();
+      unlistenRelay?.();
+      unlistenTransport?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -142,11 +250,66 @@ function App() {
     }
   };
 
+  const handleProtocolSend = async () => {
+    if (!connectedId || !writeUuid) {
+      addLog("⚠️ Pick a writable characteristic first.");
+      return;
+    }
+    try {
+      const res = await invoke<string>("send_protocol_text_to_device", {
+        request: {
+          deviceId: connectedId,
+          charUuid: writeUuid,
+          dstAddr: 65535,
+          ttl: 3,
+          text: writeText,
+        },
+      });
+      addLog(`📡 ${res}  "${writeText}"`);
+    } catch (e) {
+      addLog(`❌ Protocol send failed: ${e}`);
+    }
+  };
+
+  const handleMeshPing = async () => {
+    if (!connectedId || !writeUuid) {
+      addLog("⚠️ Pick a writable characteristic first.");
+      return;
+    }
+    try {
+      const res = await invoke<string>("send_protocol_ping_to_device", {
+        request: {
+          deviceId: connectedId,
+          charUuid: writeUuid,
+          dstAddr: 65535,
+          ttl: 4,
+        },
+      });
+      const seq = Number(res.match(/seq=(\d+)/)?.[1]);
+      if (Number.isFinite(seq)) {
+        pendingPings.current.set(seq, Date.now());
+      }
+      setMeshStats((prev) => ({
+        ...prev,
+        pingsSent: prev.pingsSent + 1,
+        lastRttMs: null,
+      }));
+      addLog(`🏓 ${res}`);
+    } catch (e) {
+      addLog(`❌ Mesh ping failed: ${e}`);
+    }
+  };
+
   return (
     <main style={{ padding: 20, fontFamily: "sans-serif", maxWidth: 900, margin: "0 auto" }}>
       <h1 style={{ marginBottom: 4 }}>Agnostic BLE — Connection</h1>
       <p style={{ color: "#666", marginTop: 0 }}>
-        Scan → connect → discover services → exchange data over GATT.
+        Scan → connect → discover services → exchange protocol frames over off-grid GATT.
+        {nodeAddr != null && (
+          <span style={{ marginLeft: 8, fontFamily: "monospace" }}>
+            node={nodeAddr}
+          </span>
+        )}
       </p>
 
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
@@ -270,7 +433,27 @@ function App() {
                   style={{ flex: 1, padding: 6 }}
                 />
                 <button onClick={handleWrite} style={btn("#0275d8")}>
-                  Send
+                  Send raw
+                </button>
+                <button onClick={handleProtocolSend} style={btn("#6f42c1")}>
+                  Send protocol
+                </button>
+              </div>
+
+              <h3>Mesh proof</h3>
+              <div style={{ ...card(false), background: "#f7fbf8" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
+                  <strong>Ping sent: {meshStats.pingsSent}</strong>
+                  <strong>Pong recv: {meshStats.pongsReceived}</strong>
+                  <span>Relays: {meshStats.relays}</span>
+                  <span>
+                    RTT: {meshStats.lastRttMs == null ? "waiting" : `${meshStats.lastRttMs}ms`}
+                  </span>
+                  <span>Packets: {meshStats.lastPackets}</span>
+                  <span>Bytes: {meshStats.lastBytes}</span>
+                </div>
+                <button onClick={handleMeshPing} style={{ ...btn("#111"), marginTop: 10 }}>
+                  Ping mesh
                 </button>
               </div>
             </>
