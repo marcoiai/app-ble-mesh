@@ -107,7 +107,7 @@ function App() {
   const [writeText, setWriteText] = useState("Hello");
   const [nodeAddr, setNodeAddr] = useState<number | null>(null);
   const [feedOnly, setFeedOnly] = useState(true);
-  const [autoMesh, setAutoMesh] = useState(true);
+  const [autoMesh, setAutoMesh] = useState(false);
   const [autoMeshStatus, setAutoMeshStatus] = useState("Waiting for platform...");
   const [macAdvertise, setMacAdvertise] = useState(false);
   const [runtimePlatform, setRuntimePlatform] = useState("unknown");
@@ -151,6 +151,11 @@ function App() {
           setRuntimePlatform(platform);
           if (platform === "android") {
             addLog("📣 Android BLE peripheral starts automatically.");
+            setAutoMesh(false);
+            setAutoMeshStatus("Advertising is on. Turn Auto mesh on to try Android central scan.");
+          } else if (platform === "macos") {
+            setAutoMesh(true);
+            setAutoMeshStatus("Scanning for 0xFEED nodes...");
           }
         })
         .catch(() => setRuntimePlatform("unknown"));
@@ -496,7 +501,7 @@ function App() {
           ) : (
             <div style={{ marginTop: 8, fontSize: 12, color: "#1f7a1f" }}>
               {runtimePlatform === "android"
-                ? "This Android advertises 0xFEED and can also scan for nearby mesh nodes."
+                ? "This Android advertises 0xFEED. Central scan is available, but Auto mesh is opt-in here."
                 : "Advertising status is managed by this platform."}
             </div>
           )}
