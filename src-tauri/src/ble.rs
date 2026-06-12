@@ -62,6 +62,7 @@ async fn first_adapter(state: &tauri::State<'_, BleState>) -> Result<Adapter, St
 async fn find_peripheral_for_connect(adapter: &Adapter, id: &str) -> Result<Peripheral, String> {
     let mut peripherals = adapter.peripherals().await.map_err(|e| e.to_string())?;
     if let Some(peripheral) = peripherals.iter().find(|p| p.id().to_string() == id) {
+        let _ = adapter.stop_scan().await;
         return Ok(peripheral.clone());
     }
 
@@ -78,6 +79,7 @@ async fn find_peripheral_for_connect(adapter: &Adapter, id: &str) -> Result<Peri
         .find(|p| p.id().to_string() == id)
         .cloned();
     if let Some(peripheral) = peripheral {
+        let _ = adapter.stop_scan().await;
         return Ok(peripheral);
     }
 
@@ -102,6 +104,13 @@ async fn advertises_mesh_service(peripheral: &Peripheral) -> bool {
             .any(|service| service.to_string().eq_ignore_ascii_case(FEED_SERVICE_UUID)),
         _ => false,
     }
+}
+
+fn has_discovered_mesh_characteristic(peripheral: &Peripheral) -> bool {
+    peripheral
+        .characteristics()
+        .iter()
+        .any(|c| c.uuid.to_string().eq_ignore_ascii_case(FEED_CHAR_UUID))
 }
 
 // =====================================================================================
@@ -296,13 +305,18 @@ pub async fn connect_device(
 
     let _ = adapter.stop_scan().await;
 
-    if let Err(error) = tokio::time::timeout(DISCOVERY_TIMEOUT, peripheral.discover_services())
-        .await
-        .map_err(|_| format!("Service discovery timed out for {id}"))?
-        .map_err(|e| format!("Service discovery failed for {id}: {e}"))
-    {
-        let _ = peripheral.disconnect().await;
-        return Err(error);
+    if has_discovered_mesh_characteristic(&peripheral) {
+        println!("[CONNECT] Reusing cached 0xFEE1 service discovery for {id}");
+    } else {
+        if let Err(error) = tokio::time::timeout(DISCOVERY_TIMEOUT, peripheral.discover_services())
+            .await
+            .map_err(|_| format!("Service discovery timed out for {id}"))?
+            .map_err(|e| format!("Service discovery failed for {id}: {e}"))
+        {
+            let _ = peripheral.disconnect().await;
+            return Err(error);
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
     }
 
     // Monta o mapa de serviços/características para o frontend.
