@@ -26,6 +26,7 @@ import java.util.UUID
 @SuppressLint("MissingPermission")
 object BleMeshPeripheral {
     private const val TAG = "BleMeshPeripheral"
+    private const val MAX_NOTIFY_QUEUE_PER_DEVICE = 24
 
     private val SERVICE_UUID: UUID = UUID.fromString("0000FEED-0000-1000-8000-00805F9B34FB")
     private val CHAR_UUID: UUID = UUID.fromString("0000FEE1-0000-1000-8000-00805F9B34FB")
@@ -178,8 +179,11 @@ object BleMeshPeripheral {
             for (device in devices) {
                 val key = device.address
                 val queue = notifyQueues.getOrPut(key) { ArrayDeque() }
+                while (queue.size >= MAX_NOTIFY_QUEUE_PER_DEVICE) {
+                    queue.pollFirst()
+                }
                 queue.add(data.copyOf())
-                Log.d(TAG, "send: queued ${data.size} byte(s) for $key, queue=${queue.size}")
+                Log.v(TAG, "send: queued ${data.size} byte(s) for $key, queue=${queue.size}")
                 pumpNotifyLocked(device)
             }
         }
@@ -226,7 +230,7 @@ object BleMeshPeripheral {
                 Log.w(TAG, "notify not accepted for $key, dropped ${data.size} byte(s)")
                 pumpNotifyLocked(device)
             } else {
-                Log.d(TAG, "notify accepted for $key, ${data.size} byte(s)")
+                Log.v(TAG, "notify accepted for $key, ${data.size} byte(s)")
             }
         } catch (t: Throwable) {
             notifying.remove(key)
@@ -290,7 +294,7 @@ object BleMeshPeripheral {
             offset: Int,
             value: ByteArray,
         ) {
-            Log.d(
+            Log.v(
                 TAG,
                 "write ${device.address} uuid=${characteristic.uuid} len=${value.size} response=$responseNeeded offset=$offset prepared=$preparedWrite",
             )
@@ -315,7 +319,7 @@ object BleMeshPeripheral {
             offset: Int,
             value: ByteArray,
         ) {
-            Log.d(
+            Log.v(
                 TAG,
                 "descriptor write ${device.address} uuid=${descriptor.uuid} len=${value.size} response=$responseNeeded offset=$offset prepared=$preparedWrite value=${value.joinToString("") { "%02x".format(it) }}",
             )
@@ -344,7 +348,7 @@ object BleMeshPeripheral {
                 notifying.remove(key)
                 pumpNotifyLocked(device)
             }
-            Log.d(TAG, "notification sent ${device.address}: $status")
+            Log.v(TAG, "notification sent ${device.address}: $status")
         }
 
         override fun onCharacteristicReadRequest(

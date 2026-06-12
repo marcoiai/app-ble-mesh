@@ -355,22 +355,29 @@ function App() {
       setIsScanning(true);
       setAutoMeshStatus("Scanning for 0xFEED nodes...");
       try {
+        const nativeConnectedIds = await invoke<string[]>("connected_device_ids");
+        if (cancelled) return;
+        if (nativeConnectedIds.length > 0) {
+          setConnectedIds(nativeConnectedIds);
+          setWriteUuid(FEED_CHAR_UUID);
+        }
+        const currentConnectedId = nativeConnectedIds[0] ?? activeConnectedId;
         const found = await invoke<DeviceInfo[]>("scan_devices");
         if (cancelled) return;
         setDevices(found);
         const candidates = meshCandidates(found);
         if (candidates.length === 0) {
-          if (!activeConnectedId) setAutoMeshStatus("No mesh node nearby yet.");
+          if (!currentConnectedId) setAutoMeshStatus("No mesh node nearby yet.");
           return;
         }
 
-        if (activeConnectedId) {
-          if (bridgeConnectedId.current === activeConnectedId) {
+        if (currentConnectedId) {
+          if (bridgeConnectedId.current === currentConnectedId) {
             setAutoMeshStatus("Mesh link online via bridge.");
             return;
           }
           const bridge = candidates.find(
-            (candidate) => candidate.id !== activeConnectedId && isBridgeCandidate(candidate)
+            (candidate) => candidate.id !== currentConnectedId && isBridgeCandidate(candidate)
           );
           if (!bridge) {
             setAutoMeshStatus("Mesh link online. Watching for bridge nodes...");
@@ -381,12 +388,12 @@ function App() {
           setAutoMeshStatus(`Bridge node found. Rejoining via ${bridge.name}...`);
           addLog(`🧭 Bridge node found: ${bridge.name}. Rejoining mesh.`);
           try {
-            await invoke<string>("disconnect_device", { deviceId: activeConnectedId });
+            await invoke<string>("disconnect_device", { deviceId: currentConnectedId });
           } catch (e) {
             addLog(`⚠️ Rejoin disconnect warning: ${e}`);
           }
           if (cancelled) return;
-          setConnectedIds((prev) => prev.filter((id) => id !== activeConnectedId));
+          setConnectedIds((prev) => prev.filter((id) => id !== currentConnectedId));
           setServices([]);
           setWriteUuid("");
           candidates.splice(0, candidates.length, bridge);
