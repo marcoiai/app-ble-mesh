@@ -100,7 +100,7 @@ function App() {
   const [writeUuid, setWriteUuid] = useState("");
   const [writeText, setWriteText] = useState("Hello");
   const [nodeAddr, setNodeAddr] = useState<number | null>(null);
-  const [feedOnly, setFeedOnly] = useState(false);
+  const [feedOnly, setFeedOnly] = useState(true);
   const [macAdvertise, setMacAdvertise] = useState(false);
   const [runtimePlatform, setRuntimePlatform] = useState("unknown");
   const [logs, setLogs] = useState<string[]>([]);
@@ -253,13 +253,17 @@ function App() {
     }
   };
 
-  const handleConnect = async (id: string, name: string) => {
+  const handleConnect = async (device: DeviceInfo) => {
+    if (!advertisesFeed(device)) {
+      addLog(`⚠️ Refusing ${device.name}: not advertising 0xFEED.`);
+      return;
+    }
     setConnecting(true);
-    addLog(`🔗 Connecting to ${name} ...`);
+    addLog(`🔗 Connecting to ${device.name} ...`);
     try {
-      const svcs = await invoke<ServiceInfo[]>("connect_device", { id });
+      const svcs = await invoke<ServiceInfo[]>("connect_device", { id: device.id });
       setServices(svcs);
-      setConnectedId(id);
+      setConnectedId(device.id);
       const charCount = svcs.reduce((n, s) => n + s.characteristics.length, 0);
       addLog(`✅ Connected. ${svcs.length} service(s), ${charCount} characteristic(s).`);
       // Pré-seleciona a primeira característica gravável para conveniência.
@@ -484,11 +488,11 @@ function App() {
                     </button>
                   ) : (
                     <button
-                      onClick={() => handleConnect(d.id, d.name)}
-                      disabled={connecting || connectedId != null}
-                      style={miniBtn("#0275d8")}
+                      onClick={() => handleConnect(d)}
+                      disabled={connecting || connectedId != null || !advertisesFeed(d)}
+                      style={miniBtn(advertisesFeed(d) ? "#0275d8" : "#777")}
                     >
-                      {connecting ? "..." : "Connect"}
+                      {connecting ? "..." : advertisesFeed(d) ? "Connect" : "Not 0xFEED"}
                     </button>
                   )}
                 </div>

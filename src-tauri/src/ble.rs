@@ -11,6 +11,9 @@ use tauri::{AppHandle, Emitter};
 
 use crate::protocol::{self, ProtocolFrame, ProtocolNodeInfo};
 
+const FEED_SERVICE_UUID: &str = "0000feed-0000-1000-8000-00805f9b34fb";
+const FEED_CHAR_UUID: &str = "0000fee1-0000-1000-8000-00805f9b34fb";
+
 // =====================================================================================
 //  MODELO DE PACOTE DO MESH (transporte agnóstico que viaja DENTRO de uma característica)
 // =====================================================================================
@@ -86,6 +89,16 @@ async fn find_peripheral_for_connect(adapter: &Adapter, id: &str) -> Result<Peri
         peripherals.len(),
         if seen.is_empty() { "(none)" } else { &seen }
     ))
+}
+
+async fn advertises_mesh_service(peripheral: &Peripheral) -> bool {
+    match peripheral.properties().await {
+        Ok(Some(props)) => props
+            .services
+            .iter()
+            .any(|service| service.to_string().eq_ignore_ascii_case(FEED_SERVICE_UUID)),
+        _ => false,
+    }
 }
 
 // =====================================================================================
@@ -252,6 +265,12 @@ pub async fn connect_device(
     let adapter = first_adapter(&state).await?;
     let peripheral = find_peripheral_for_connect(&adapter, &id).await?;
 
+    if !advertises_mesh_service(&peripheral).await {
+        return Err(format!(
+            "Refusing to connect to {id}: device is not advertising 0xFEED."
+        ));
+    }
+
     if !peripheral.is_connected().await.unwrap_or(false) {
         peripheral
             .connect()
@@ -298,31 +317,39 @@ pub async fn connect_device(
 
     let notification_stream = peripheral.notifications().await;
 
-    // Auto-inscreve em tudo que suporta notificação/indicação.
+    // Auto-inscreve apenas na característica mesh. Subscribing broadly can trip
+    // CoreBluetooth/btleplug edge cases on macOS when nearby non-mesh devices
+    // expose many notify characteristics.
     for c in peripheral.characteristics() {
-        if c.properties.contains(CharPropFlags::NOTIFY)
-            || c.properties.contains(CharPropFlags::INDICATE)
+        if !c.uuid.to_string().eq_ignore_ascii_case(FEED_CHAR_UUID) {
+            continue;
+        }
+        if !(c.properties.contains(CharPropFlags::NOTIFY)
+            || c.properties.contains(CharPropFlags::INDICATE))
         {
-            let mut subscribed = false;
-            for attempt in 1..=3 {
-                match peripheral.subscribe(&c).await {
-                    Ok(()) => {
-                        println!("[CONNECT] Subscribed to {} on attempt {}", c.uuid, attempt);
-                        subscribed = true;
-                        break;
-                    }
-                    Err(e) => {
-                        println!(
-                            "[CONNECT] Could not subscribe to {} on attempt {}: {}",
-                            c.uuid, attempt, e
-                        );
-                        tokio::time::sleep(Duration::from_millis(250)).await;
-                    }
+            println!("[CONNECT] Mesh characteristic {} does not notify", c.uuid);
+            continue;
+        }
+
+        let mut subscribed = false;
+        for attempt in 1..=3 {
+            match peripheral.subscribe(&c).await {
+                Ok(()) => {
+                    println!("[CONNECT] Subscribed to {} on attempt {}", c.uuid, attempt);
+                    subscribed = true;
+                    break;
+                }
+                Err(e) => {
+                    println!(
+                        "[CONNECT] Could not subscribe to {} on attempt {}: {}",
+                        c.uuid, attempt, e
+                    );
+                    tokio::time::sleep(Duration::from_millis(250)).await;
                 }
             }
-            if !subscribed {
-                println!("[CONNECT] Giving up subscribe to {}", c.uuid);
-            }
+        }
+        if !subscribed {
+            println!("[CONNECT] Giving up subscribe to {}", c.uuid);
         }
     }
 
