@@ -125,6 +125,7 @@ function App() {
   const logRef = useRef<HTMLDivElement>(null);
   const pendingPings = useRef<Map<number, number>>(new Map());
   const activeConnectedId = connectedIds[0] ?? null;
+  const supportsCentralMesh = runtimePlatform === "macos" || runtimePlatform === "android";
   const canSendMesh =
     runtimePlatform === "android" || (activeConnectedId != null && writeUuid.length > 0);
 
@@ -231,10 +232,6 @@ function App() {
   }, [logs]);
 
   const handleScan = async () => {
-    if (runtimePlatform === "android") {
-      addLog("📣 Android is already advertising 0xFEED. Scan from a Mac to connect to this phone.");
-      return;
-    }
     setIsScanning(true);
     addLog("🔍 Scanning for nearby BLE devices (~4s)...");
     try {
@@ -249,7 +246,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (!autoMesh || runtimePlatform !== "macos" || activeConnectedId) {
+    if (!autoMesh || !supportsCentralMesh || activeConnectedId) {
       return;
     }
 
@@ -305,7 +302,7 @@ function App() {
       window.clearTimeout(first);
       window.clearInterval(timer);
     };
-  }, [autoMesh, runtimePlatform, activeConnectedId]);
+  }, [autoMesh, supportsCentralMesh, activeConnectedId]);
 
   const handleToggleMacAdvertise = async () => {
     if (runtimePlatform !== "macos") {
@@ -467,20 +464,22 @@ function App() {
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
         {/* Coluna esquerda: descoberta de dispositivos */}
         <section style={{ flex: 1 }}>
+          {supportsCentralMesh && (
+            <label style={{ display: "block", marginBottom: 10, fontSize: 13, color: "#333" }}>
+              <input
+                type="checkbox"
+                checked={autoMesh}
+                onChange={(e) => setAutoMesh(e.target.checked)}
+              />{" "}
+              Auto mesh
+              <span style={{ display: "block", color: "#666", marginTop: 3 }}>
+                {activeConnectedId ? "Mesh link online." : autoMeshStatus}
+              </span>
+            </label>
+          )}
+
           {runtimePlatform === "macos" ? (
             <>
-              <label style={{ display: "block", marginBottom: 10, fontSize: 13, color: "#333" }}>
-                <input
-                  type="checkbox"
-                  checked={autoMesh}
-                  onChange={(e) => setAutoMesh(e.target.checked)}
-                />{" "}
-                Auto mesh
-                <span style={{ display: "block", color: "#666", marginTop: 3 }}>
-                  {activeConnectedId ? "Mesh link online." : autoMeshStatus}
-                </span>
-              </label>
-
               <button
                 onClick={handleToggleMacAdvertise}
                 style={btn(macAdvertise ? "#d9534f" : "#111")}
@@ -497,19 +496,17 @@ function App() {
           ) : (
             <div style={{ marginTop: 8, fontSize: 12, color: "#1f7a1f" }}>
               {runtimePlatform === "android"
-                ? "This Android advertises 0xFEED automatically while the app is open."
+                ? "This Android advertises 0xFEED and can also scan for nearby mesh nodes."
                 : "Advertising status is managed by this platform."}
             </div>
           )}
 
           <button
             onClick={handleScan}
-            disabled={isScanning || runtimePlatform === "android"}
-            style={btn(runtimePlatform === "android" ? "#777" : "#5cb85c")}
+            disabled={isScanning || runtimePlatform === "unknown"}
+            style={btn(runtimePlatform === "unknown" ? "#777" : "#5cb85c")}
           >
-            {runtimePlatform === "android"
-              ? "Android advertising; scan from Mac"
-              : isScanning
+            {isScanning
                 ? "Scanning..."
                 : "Scan for devices"}
           </button>
