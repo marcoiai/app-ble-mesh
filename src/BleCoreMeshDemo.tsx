@@ -106,18 +106,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
     });
 
     node.setSecret(secret);
-    node.addTransport(
-      new BleTransport(
-        isPeripheral
-          ? { mode: "peripheral", peerId: "ble-neighbor" }
-          : {
-              mode: "central",
-              deviceId: connectedId,
-              charUuid: writeUuid,
-              peerId: connectedId ?? "ble-neighbor",
-            },
-      ),
-    );
+    node.addTransport(new BleTransport({ peerId: node.id }));
 
     const chat = node.use(chatService());
     const unsubs: Array<() => void> = [

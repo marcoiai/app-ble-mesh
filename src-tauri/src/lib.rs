@@ -104,6 +104,19 @@ fn macos_peripheral_status() -> MacosPeripheralStatusOut {
     }
 }
 
+#[tauri::command]
+fn mesh_ble_start(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = ble_macos::start(app.clone())?;
+    }
+    #[cfg(target_os = "android")]
+    {
+        ble_android::start(app);
+    }
+    Ok(())
+}
+
 #[derive(serde::Serialize)]
 struct MacosPeripheralStatusOut {
     running: bool,
@@ -162,6 +175,8 @@ pub fn run() {
             ble::send_protocol_ping_to_device,
             ble::send_core_frame_to_device,
             ble::send_peripheral_core_frame,
+            ble::mesh_ble_send,
+            ble::mesh_ble_payload,
             ble::send_android_peripheral_ping,
             ble::send_android_peripheral_core_frame,
             ble::protocol_node_info,
@@ -170,6 +185,7 @@ pub fn run() {
             macos_peripheral_start,
             macos_peripheral_stop,
             macos_peripheral_status,
+            mesh_ble_start,
             android_peripheral_send,
             peripheral_send,
             runtime_platform

@@ -370,6 +370,7 @@ pub async fn connect_device(
     if let Ok(mut stream) = notification_stream {
         tokio::spawn(async move {
             while let Some(n) = stream.next().await {
+                let _ = app_clone.emit("mesh-ble-frame", n.value.clone());
                 handle_protocol_bytes(
                     &app_clone,
                     &n.value,
@@ -688,6 +689,50 @@ pub async fn send_peripheral_core_frame(
     ))
 }
 
+#[tauri::command]
+pub async fn mesh_ble_send(
+    data: Vec<u8>,
+    state: tauri::State<'_, BleState>,
+) -> Result<String, String> {
+    let mut sent = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+
+    #[cfg(target_os = "android")]
+    match crate::ble_android::send(data.clone()) {
+        Ok(()) => sent += 1,
+        Err(error) => errors.push(format!("android peripheral: {error}")),
+    }
+
+    #[cfg(target_os = "macos")]
+    match crate::ble_macos::send(data.clone()) {
+        Ok(()) => sent += 1,
+        Err(error) => errors.push(format!("macOS peripheral: {error}")),
+    }
+
+    let peers: Vec<Peripheral> = state.connected.lock().unwrap().values().cloned().collect();
+    for peer in peers {
+        match write_protocol_bytes_to_peripheral(&peer, FEED_CHAR_UUID, &data).await {
+            Ok(()) => sent += 1,
+            Err(error) => errors.push(format!("central write {}: {error}", peer.id())),
+        }
+    }
+
+    if sent > 0 {
+        Ok(format!("Sent BLE byte chunk to {sent} path(s)"))
+    } else {
+        Err(if errors.is_empty() {
+            "No BLE path is ready".to_string()
+        } else {
+            errors.join("; ")
+        })
+    }
+}
+
+#[tauri::command]
+pub fn mesh_ble_payload() -> u16 {
+    protocol::DEFAULT_BLE_PACKET_LEN as u16
+}
+
 async fn write_protocol_packets_to_device(
     device_id: &str,
     char_uuid: &str,
@@ -898,6 +943,8 @@ fn emit_protocol_transport(app: &AppHandle, sequence_number: u32, packets: &[Vec
 pub async fn handle_android_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
     use tauri::Manager;
 
+    let _ = app.emit("mesh-ble-frame", bytes.clone());
+
     let state = app.state::<BleState>();
     let frame = {
         let mut cache = state.cache.lock().unwrap();
@@ -964,6 +1011,8 @@ pub async fn handle_android_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
 #[cfg(target_os = "macos")]
 pub async fn handle_macos_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
     use tauri::Manager;
+
+    let _ = app.emit("mesh-ble-frame", bytes.clone());
 
     let state = app.state::<BleState>();
     let frame = {

@@ -45,6 +45,7 @@ pub extern "system" fn Java_com_auser_app_1ble_1mesh_BleMeshPeripheral_nativeOnF
     };
     if let Ok(guard) = APP.lock() {
         if let Some(app) = guard.as_ref() {
+            let _ = app.emit("mesh-ble-frame", bytes.clone());
             let app_clone = app.clone();
             let protocol_bytes = bytes.clone();
             tauri::async_runtime::spawn(async move {
