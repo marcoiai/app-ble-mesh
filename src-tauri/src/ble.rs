@@ -315,11 +315,10 @@ pub async fn connect_device(
         });
     }
 
-    let notification_stream = peripheral.notifications().await;
-
     // Auto-inscreve apenas na característica mesh. Subscribing broadly can trip
     // CoreBluetooth/btleplug edge cases on macOS when nearby non-mesh devices
     // expose many notify characteristics.
+    let mut mesh_subscribed = false;
     for c in peripheral.characteristics() {
         if !c.uuid.to_string().eq_ignore_ascii_case(FEED_CHAR_UUID) {
             continue;
@@ -337,6 +336,7 @@ pub async fn connect_device(
                 Ok(()) => {
                     println!("[CONNECT] Subscribed to {} on attempt {}", c.uuid, attempt);
                     subscribed = true;
+                    mesh_subscribed = true;
                     break;
                 }
                 Err(e) => {
@@ -353,6 +353,17 @@ pub async fn connect_device(
         }
     }
 
+    if !mesh_subscribed {
+        return Err(format!(
+            "Connected to {id}, but could not subscribe to mesh notifications on 0xFEE1."
+        ));
+    }
+
+    let mut notification_stream = peripheral
+        .notifications()
+        .await
+        .map_err(|e| format!("Connected to {id}, but notification stream failed: {e}"))?;
+
     // Guarda o handle conectado para writes/subscribe futuros.
     state
         .connected
@@ -367,33 +378,31 @@ pub async fn connect_device(
     let cache_clone = state.cache.clone();
     let connected_clone = state.connected.clone();
     let sequence_clone = state.sequence.clone();
-    if let Ok(mut stream) = notification_stream {
-        tokio::spawn(async move {
-            while let Some(n) = stream.next().await {
-                let _ = app_clone.emit("mesh-ble-frame", n.value.clone());
-                handle_protocol_bytes(
-                    &app_clone,
-                    &n.value,
-                    node_addr,
-                    cache_clone.clone(),
-                    connected_clone.clone(),
-                    sequence_clone.clone(),
-                    Some(dev_id.clone()),
-                    n.uuid.to_string(),
-                )
-                .await;
-                let _ = app_clone.emit(
-                    "ble-notification",
-                    NotificationPayload {
-                        device_id: dev_id.clone(),
-                        char_uuid: n.uuid.to_string(),
-                        value: n.value,
-                    },
-                );
-            }
-            println!("[NOTIFY] Notification stream for {} ended.", dev_id);
-        });
-    }
+    tokio::spawn(async move {
+        while let Some(n) = notification_stream.next().await {
+            let _ = app_clone.emit("mesh-ble-frame", n.value.clone());
+            handle_protocol_bytes(
+                &app_clone,
+                &n.value,
+                node_addr,
+                cache_clone.clone(),
+                connected_clone.clone(),
+                sequence_clone.clone(),
+                Some(dev_id.clone()),
+                n.uuid.to_string(),
+            )
+            .await;
+            let _ = app_clone.emit(
+                "ble-notification",
+                NotificationPayload {
+                    device_id: dev_id.clone(),
+                    char_uuid: n.uuid.to_string(),
+                    value: n.value,
+                },
+            );
+        }
+        println!("[NOTIFY] Notification stream for {} ended.", dev_id);
+    });
 
     Ok(services)
 }

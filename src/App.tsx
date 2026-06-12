@@ -94,8 +94,8 @@ function shortUuid(uuid: string): string {
 function App() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [isScanning, setIsScanning] = useState(false);
-  const [connectedId, setConnectedId] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
+  const [connectedIds, setConnectedIds] = useState<string[]>([]);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [writeUuid, setWriteUuid] = useState("");
   const [writeText, setWriteText] = useState("Hello");
@@ -116,8 +116,9 @@ function App() {
   });
   const logRef = useRef<HTMLDivElement>(null);
   const pendingPings = useRef<Map<number, number>>(new Map());
+  const activeConnectedId = connectedIds[0] ?? null;
   const canSendMesh =
-    runtimePlatform === "android" || (connectedId != null && writeUuid.length > 0);
+    runtimePlatform === "android" || (activeConnectedId != null && writeUuid.length > 0);
 
   const addLog = (msg: string) =>
     setLogs((prev) => [...prev, `${new Date().toLocaleTimeString()}  ${msg}`]);
@@ -260,12 +261,12 @@ function App() {
       addLog(`⚠️ Refusing ${device.name}: not advertising 0xFEED.`);
       return;
     }
-    setConnecting(true);
+    setConnectingId(device.id);
     addLog(`🔗 Connecting to ${device.name} ...`);
     try {
       const svcs = await invoke<ServiceInfo[]>("connect_device", { id: device.id });
       setServices(svcs);
-      setConnectedId(device.id);
+      setConnectedIds((prev) => (prev.includes(device.id) ? prev : [...prev, device.id]));
       const charCount = svcs.reduce((n, s) => n + s.characteristics.length, 0);
       addLog(`✅ Connected. ${svcs.length} service(s), ${charCount} characteristic(s).`);
       // Pré-seleciona a primeira característica gravável para conveniência.
@@ -279,31 +280,30 @@ function App() {
     } catch (e) {
       addLog(`❌ Connect failed: ${e}`);
     } finally {
-      setConnecting(false);
+      setConnectingId(null);
     }
   };
 
-  const handleDisconnect = async () => {
-    if (!connectedId) return;
+  const handleDisconnect = async (deviceId: string) => {
     try {
-      const res = await invoke<string>("disconnect_device", { deviceId: connectedId });
+      const res = await invoke<string>("disconnect_device", { deviceId });
       addLog(`🔌 ${res}`);
     } catch (e) {
       addLog(`❌ Disconnect error: ${e}`);
     }
-    setConnectedId(null);
-    setServices([]);
+    setConnectedIds((prev) => prev.filter((id) => id !== deviceId));
+    if (activeConnectedId === deviceId) setServices([]);
   };
 
   const handleWrite = async () => {
-    if (!connectedId || !writeUuid) {
+    if (!activeConnectedId || !writeUuid) {
       addLog("⚠️ Pick a writable characteristic first.");
       return;
     }
     const bytes = Array.from(new TextEncoder().encode(writeText));
     try {
       const res = await invoke<string>("write_characteristic", {
-        deviceId: connectedId,
+        deviceId: activeConnectedId,
         charUuid: writeUuid,
         data: bytes,
       });
@@ -314,14 +314,14 @@ function App() {
   };
 
   const handleProtocolSend = async () => {
-    if (!connectedId || !writeUuid) {
+    if (!activeConnectedId || !writeUuid) {
       addLog("⚠️ Pick a writable characteristic first.");
       return;
     }
     try {
       const res = await invoke<string>("send_protocol_text_to_device", {
         request: {
-          deviceId: connectedId,
+          deviceId: activeConnectedId,
           charUuid: writeUuid,
           dstAddr: 65535,
           ttl: 3,
@@ -353,14 +353,14 @@ function App() {
       }
       return;
     }
-    if (!connectedId || !writeUuid) {
+    if (!activeConnectedId || !writeUuid) {
       addLog("⚠️ Pick a writable characteristic first.");
       return;
     }
     try {
       const res = await invoke<string>("send_protocol_ping_to_device", {
         request: {
-          deviceId: connectedId,
+          deviceId: activeConnectedId,
           charUuid: writeUuid,
           dstAddr: 65535,
           ttl: 4,
@@ -447,7 +447,8 @@ function App() {
             {devices
               .filter((d) => !feedOnly || advertisesFeed(d))
               .map((d) => {
-              const isConnected = d.id === connectedId;
+              const isConnected = connectedIds.includes(d.id);
+              const isConnecting = connectingId === d.id;
               return (
                 <div key={d.id} style={card(isConnected)}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -477,16 +478,16 @@ function App() {
                     {d.id}
                   </div>
                   {isConnected ? (
-                    <button onClick={handleDisconnect} style={miniBtn("#d9534f")}>
+                    <button onClick={() => handleDisconnect(d.id)} style={miniBtn("#d9534f")}>
                       Disconnect
                     </button>
                   ) : (
                     <button
                       onClick={() => handleConnect(d)}
-                      disabled={connecting || connectedId != null || !advertisesFeed(d)}
+                      disabled={connectingId != null || !advertisesFeed(d)}
                       style={miniBtn(advertisesFeed(d) ? "#0275d8" : "#777")}
                     >
-                      {connecting ? "..." : advertisesFeed(d) ? "Connect" : "Not 0xFEED"}
+                      {isConnecting ? "..." : advertisesFeed(d) ? "Connect" : "Not 0xFEED"}
                     </button>
                   )}
                 </div>
@@ -497,7 +498,7 @@ function App() {
 
         {/* Coluna direita: serviços + envio de dados */}
         <section style={{ flex: 1 }}>
-          {connectedId ? (
+          {activeConnectedId ? (
             <>
               <details style={{ ...detailsBox, marginTop: 0 }}>
                 <summary style={summaryStyle}>Advanced GATT tools</summary>
@@ -603,7 +604,7 @@ function App() {
 
       <BleCoreMeshDemo
         runtimePlatform={runtimePlatform}
-        connectedId={connectedId}
+        connectedId={activeConnectedId}
         writeUuid={writeUuid}
         macAdvertise={macAdvertise}
       />
