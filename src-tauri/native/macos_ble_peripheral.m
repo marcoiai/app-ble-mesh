@@ -41,6 +41,7 @@ static void Emit(NSString *line) {
 @interface MeshPeripheral : NSObject <CBPeripheralManagerDelegate>
 @property(nonatomic, strong) CBPeripheralManager *manager;
 @property(nonatomic, strong) CBMutableCharacteristic *characteristic;
+@property(nonatomic, strong) NSMutableArray<NSData *> *sendQueue;
 @property(nonatomic, assign) BOOL started;
 @end
 
@@ -68,9 +69,29 @@ static void Emit(NSString *line) {
         return;
     }
 
-    BOOL ok = [self.manager updateValue:data forCharacteristic:self.characteristic onSubscribedCentrals:nil];
-    Emit(ok ? [NSString stringWithFormat:@"SENT %lu", (unsigned long)data.length]
-            : [NSString stringWithFormat:@"BACKPRESSURE %lu", (unsigned long)data.length]);
+    if (self.sendQueue == nil) {
+        self.sendQueue = [NSMutableArray array];
+    }
+    [self.sendQueue addObject:[data copy]];
+    [self flushSendQueue];
+}
+
+- (void)flushSendQueue {
+    if (self.characteristic == nil || self.sendQueue.count == 0) {
+        return;
+    }
+
+    while (self.sendQueue.count > 0) {
+        NSData *next = self.sendQueue.firstObject;
+        BOOL ok = [self.manager updateValue:next forCharacteristic:self.characteristic onSubscribedCentrals:nil];
+        if (!ok) {
+            Emit([NSString stringWithFormat:@"BACKPRESSURE queued=%lu", (unsigned long)self.sendQueue.count]);
+            return;
+        }
+
+        Emit([NSString stringWithFormat:@"SENT %lu", (unsigned long)next.length]);
+        [self.sendQueue removeObjectAtIndex:0];
+    }
 }
 
 - (void)peripheralManagerDidUpdateState:(CBPeripheralManager *)peripheral {
@@ -102,6 +123,7 @@ static void Emit(NSString *line) {
                   central:(CBCentral *)central
  didSubscribeToCharacteristic:(CBCharacteristic *)characteristic {
     Emit([NSString stringWithFormat:@"SUBSCRIBE %@", central.identifier.UUIDString]);
+    [self flushSendQueue];
 }
 
 - (void)peripheralManager:(CBPeripheralManager *)peripheral
@@ -129,6 +151,10 @@ didUnsubscribeFromCharacteristic:(CBCharacteristic *)characteristic {
     } else {
         Emit(@"STATE advertising-started");
     }
+}
+
+- (void)peripheralManagerIsReadyToUpdateSubscribers:(CBPeripheralManager *)peripheral {
+    [self flushSendQueue];
 }
 
 - (void)peripheralManager:(CBPeripheralManager *)peripheral didReceiveWriteRequests:(NSArray<CBATTRequest *> *)requests {
