@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   BleTransport,
   MeshNode,
@@ -14,6 +15,22 @@ interface BleCoreMeshDemoProps {
   writeUuid: string;
 }
 
+interface ProtocolFrameOut {
+  opcode: number;
+  payload_text: string;
+}
+
+interface CoreEnvelope {
+  id?: string;
+  type?: string;
+  from?: string;
+  body?: {
+    label?: string;
+    caps?: string[];
+    neighbors?: string[];
+  };
+}
+
 type Runtime = {
   node: MeshNode;
   chat: ChatApi;
@@ -22,9 +39,11 @@ type Runtime = {
 
 const room = "radio-demo";
 const secret = "levelup-offgrid";
+const OPCODE_CORE_FRAME = 16;
 
 export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: BleCoreMeshDemoProps) {
   const runtimeRef = useRef<Runtime | null>(null);
+  const lastVisualHelloId = useRef<string | null>(null);
   const [running, setRunning] = useState(false);
   const [peers, setPeers] = useState<PeerRecord[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -33,6 +52,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
   const [rtt, setRtt] = useState<number | null>(null);
   const [lastHello, setLastHello] = useState<string | null>(null);
   const [lastPingStatus, setLastPingStatus] = useState<"idle" | "sent" | "ok" | "fail">("idle");
+  const [visualPeerCount, setVisualPeerCount] = useState(0);
   const [busy, setBusy] = useState(false);
 
   const isAndroid = runtimePlatform === "android";
@@ -65,7 +85,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
     const node = new MeshNode({
       label: isAndroid ? "Android radio" : "Desktop radio",
       caps: ["ble", "chat", "ping"],
-      heartbeatMs: 1500,
+      heartbeatMs: 5000,
       defaultTtl: 6,
       discoveryTtl: 4,
       routing: "unicast",
@@ -91,11 +111,13 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
       chat.on(room, (msg) => setMessages((prev) => [...prev.slice(-7), msg])),
       node.events.on("peer:join", (peer) => {
         setLastHello(`${peer.label} ${peer.direct ? "direct" : `${peer.hops} hop`}`);
+        setVisualPeerCount((count) => Math.max(count, 1));
         log(`peer joined: ${peer.label} (${peer.hops} hop)`);
         refreshPeers();
       }),
       node.events.on("peer:update", (peer) => {
         setLastHello(`${peer.label} ${peer.direct ? "direct" : `${peer.hops} hop`}`);
+        setVisualPeerCount((count) => Math.max(count, 1));
         refreshPeers();
       }),
       node.events.on("peer:leave", (peer) => {
@@ -109,6 +131,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
     setRunning(true);
     setLastPingStatus("idle");
     setLastHello(null);
+    setVisualPeerCount(0);
     log(isAndroid ? "BLE core transport advertising/listening" : "BLE core transport linked to connected device");
     refreshPeers();
   };
@@ -121,6 +144,35 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
       void stop();
     };
   }, [runtimePlatform, connectedId, writeUuid]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<ProtocolFrameOut>("protocol-frame", (event) => {
+      const frame = event.payload;
+      if (frame.opcode !== OPCODE_CORE_FRAME) return;
+      try {
+        const env = JSON.parse(frame.payload_text) as CoreEnvelope;
+        if (env.type === "mesh.hello") {
+          if (env.id && lastVisualHelloId.current === env.id) return;
+          lastVisualHelloId.current = env.id ?? null;
+          const label = env.body?.label ?? shortNode(env.from);
+          const caps = env.body?.caps?.join(",") ?? "mesh";
+          setLastHello(`${label} (${caps})`);
+          setVisualPeerCount((count) => Math.max(count, 1));
+          log(`HELLO ${label}`);
+        }
+        if (env.type === "mesh.ping") {
+          setLastPingStatus("ok");
+          log(`PING frame from ${shortNode(env.from)}`);
+        }
+      } catch {
+        // Non-JSON core frames will be handled by the real transport path.
+      }
+    }).then((off) => {
+      unlisten = off;
+    });
+    return () => unlisten?.();
+  }, []);
 
   const send = () => {
     const line = text.trim();
@@ -170,7 +222,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
       <div style={statusGrid}>
         <StatusTile label="Role" value={isAndroid ? "Peripheral" : connectedId ? "Central" : "Waiting"} tone={running ? "ok" : "wait"} />
         <StatusTile label="HELLO" value={lastHello ?? "Waiting"} tone={lastHello ? "ok" : "wait"} />
-        <StatusTile label="Peers" value={String(peers.length)} tone={peers.length > 0 ? "ok" : "wait"} />
+        <StatusTile label="Peers" value={String(Math.max(peers.length, visualPeerCount))} tone={peers.length > 0 || visualPeerCount > 0 ? "ok" : "wait"} />
         <StatusTile label="PING" value={pingLabel(lastPingStatus, rtt)} tone={lastPingStatus === "ok" ? "ok" : lastPingStatus === "fail" ? "bad" : "wait"} />
       </div>
 
@@ -232,6 +284,11 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
       </div>
     </section>
   );
+}
+
+function shortNode(id: string | undefined): string {
+  if (!id) return "peer";
+  return id.length > 8 ? `${id.slice(0, 8)}...` : id;
 }
 
 function StatusTile({ label, value, tone }: { label: string; value: string; tone: "ok" | "wait" | "bad" }) {

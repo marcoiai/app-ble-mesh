@@ -708,14 +708,11 @@ async fn handle_protocol_bytes(
         let mut cache = cache.lock().unwrap();
         match protocol::ingest_transport_packet(&mut cache.reassembly_cache, bytes) {
             Ok(Some(frame)) => frame,
-            Ok(None) => {
-                println!(
-                    "[BLE RX] buffered transport chunk ({} byte(s))",
-                    bytes.len()
-                );
-                return;
-            }
+            Ok(None) => return,
             Err(e) => {
+                if e.contains("unknown transport packet") {
+                    return;
+                }
                 println!("[BLE RX] failed to ingest transport packet: {e}");
                 return;
             }
