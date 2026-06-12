@@ -295,8 +295,8 @@ export function ProtocolCoreDemo() {
           {logs.length === 0 ? (
             <p style={emptyText}>Waiting for core events.</p>
           ) : (
-            logs.map((line) => (
-              <div key={`${line.ts}-${line.text}`} style={logLine}>
+            logs.map((line, index) => (
+              <div key={`${line.ts}-${index}-${line.text}`} style={logLine}>
                 {new Date(line.ts).toLocaleTimeString()} {line.text}
               </div>
             ))

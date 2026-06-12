@@ -139,6 +139,14 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
         log(`peer left: ${peer.label}`);
         refreshPeers();
       }),
+      node.events.on("message", (ctx) => {
+        if (ctx.type !== "mesh.ping" || ctx.envelope.reply) return;
+        const peer = rtPeerLabel(ctx.from, node.knownPeers());
+        showPingToast({ text: `Ping received from ${peer}`, tone: "ok" }, 3200);
+        setPingNotice(`Received ping from ${peer}`);
+        setLastPingStatus("ok");
+        log(`PING received from ${peer}`);
+      }),
     ];
 
     runtimeRef.current = { node, chat, unsubs };
@@ -346,6 +354,10 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
 function shortNode(id: string | undefined): string {
   if (!id) return "peer";
   return id.length > 8 ? `${id.slice(0, 8)}...` : id;
+}
+
+function rtPeerLabel(id: string, peers: PeerRecord[]): string {
+  return peers.find((peer) => peer.id === id)?.label ?? shortNode(id);
 }
 
 function StatusTile({ label, value, tone, active = false }: { label: string; value: string; tone: "ok" | "wait" | "bad"; active?: boolean }) {

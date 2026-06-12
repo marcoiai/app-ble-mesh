@@ -103,6 +103,8 @@ function App() {
   const [feedOnly, setFeedOnly] = useState(true);
   const [macAdvertise, setMacAdvertise] = useState(false);
   const [runtimePlatform, setRuntimePlatform] = useState("unknown");
+  const [coreDemoOpen, setCoreDemoOpen] = useState(false);
+  const [levelPackOpen, setLevelPackOpen] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [meshStats, setMeshStats] = useState<MeshStats>({
     pingsSent: 0,
@@ -606,14 +608,20 @@ function App() {
         macAdvertise={macAdvertise}
       />
 
-      <details style={detailsBox}>
+      <details
+        style={detailsBox}
+        onToggle={(event) => setCoreDemoOpen(event.currentTarget.open)}
+      >
         <summary style={summaryStyle}>Protocol core demo</summary>
-        <ProtocolCoreDemo />
+        {coreDemoOpen && <ProtocolCoreDemo />}
       </details>
 
-      <details style={detailsBox}>
+      <details
+        style={detailsBox}
+        onToggle={(event) => setLevelPackOpen(event.currentTarget.open)}
+      >
         <summary style={summaryStyle}>LevelPack benchmark</summary>
-        <LevelPackBench />
+        {levelPackOpen && <LevelPackBench />}
       </details>
 
       {/* Log de tráfego */}
