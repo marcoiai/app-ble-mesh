@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import {
   BleTransport,
   MeshNode,
@@ -49,6 +50,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const lastVisualHelloId = useRef<string | null>(null);
   const lastPrivateFrameAt = useRef(0);
   const pingToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const staleLinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [running, setRunning] = useState(false);
   const [peers, setPeers] = useState<PeerRecord[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -62,6 +64,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const [visualPeerCount, setVisualPeerCount] = useState(0);
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [chatBusy, setChatBusy] = useState(false);
 
   const isAndroid = runtimePlatform === "android";
   const isMacPeripheral = runtimePlatform === "macos" && macAdvertise;
@@ -155,6 +158,11 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
         setLastPingStatus("ok");
         log(`PING received from ${peer}`);
       }),
+      node.on("chat.direct", (ctx) => {
+        addMessage(ctx.body as ChatMessage);
+        ctx.reply({ ok: true, ts: Date.now() });
+        log(`direct chat from ${rtPeerLabel(ctx.from, node.knownPeers())}`);
+      }),
     ];
 
     runtimeRef.current = { node, chat, unsubs };
@@ -177,6 +185,30 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
       void stop();
     };
   }, [runtimePlatform, connectedId, peripheralLinkCount, writeUuid, macAdvertise]);
+
+  useEffect(() => {
+    if (staleLinkTimer.current) {
+      clearTimeout(staleLinkTimer.current);
+      staleLinkTimer.current = null;
+    }
+    if (isPeripheral || !running || !connectedId || peers.length > 0) return;
+
+    staleLinkTimer.current = setTimeout(() => {
+      const rt = runtimeRef.current;
+      if (!rt || rt.node.knownPeers().length > 0) return;
+      log("stale BLE link: no mesh hello, reconnecting");
+      void invoke("disconnect_device", { deviceId: connectedId }).catch((err) => {
+        log(`stale link disconnect failed: ${String(err)}`);
+      });
+    }, 12000);
+
+    return () => {
+      if (staleLinkTimer.current) {
+        clearTimeout(staleLinkTimer.current);
+        staleLinkTimer.current = null;
+      }
+    };
+  }, [isPeripheral, running, connectedId, peers.length]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -211,19 +243,30 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     return () => unlisten?.();
   }, []);
 
-  const send = () => {
+  const send = async () => {
     const line = text.trim();
     const rt = runtimeRef.current;
-    if (!rt || !line) return;
-    addMessage({
+    const peer = peers.find((item) => item.id === selectedPeerId) ?? peers[0];
+    if (!rt || !line || !peer || chatBusy) return;
+    const msg: ChatMessage = {
       room,
       from: rt.node.id,
       label: "You",
       text: line,
       ts: Date.now(),
-    });
-    rt.chat.say(room, line);
-    log(`sent encrypted chat frame (${line.length} chars)`);
+    };
+    setChatBusy(true);
+    try {
+      await rt.node.request(peer.id, "chat.direct", msg, 4500);
+      addMessage(msg);
+      showPingToast({ text: `Message delivered to ${peer.label}`, tone: "ok" }, 2600);
+      log(`direct encrypted chat delivered to ${peer.label} (${line.length} chars)`);
+    } catch (err) {
+      showPingToast({ text: `Message failed: ${peer.label}`, tone: "bad" }, 3400);
+      log(`direct chat failed to ${peer.label}: ${String(err)}`);
+    } finally {
+      setChatBusy(false);
+    }
   };
 
   const ping = async () => {
@@ -311,8 +354,8 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
 
       <div style={row}>
         <input value={text} onChange={(event) => setText(event.target.value)} style={input} />
-        <button onClick={send} disabled={!running} style={button("#23615f")}>
-          Send chat
+        <button onClick={() => void send()} disabled={!running || !selectedPeer || chatBusy} style={button("#23615f")}>
+          {chatBusy ? "Sending..." : selectedPeer ? `Send to ${selectedPeer.label}` : "Send direct"}
         </button>
       </div>
 
