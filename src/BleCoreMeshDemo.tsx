@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
 import {
   BleTransport,
   MeshNode,
@@ -43,6 +42,7 @@ type Runtime = {
 const room = "radio-demo";
 const secret = "levelup-offgrid";
 const OPCODE_CORE_FRAME = 16;
+const DEVICE_LABEL_KEY = "app-ble-mesh.deviceLabel";
 type PingToast = { text: string; tone: "wait" | "ok" | "bad" };
 
 export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCount, writeUuid, macAdvertise }: BleCoreMeshDemoProps) {
@@ -50,7 +50,6 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const lastVisualHelloId = useRef<string | null>(null);
   const lastPrivateFrameAt = useRef(0);
   const pingToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const staleLinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [running, setRunning] = useState(false);
   const [peers, setPeers] = useState<PeerRecord[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -120,7 +119,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     if (!canStart) return;
 
     const node = new MeshNode({
-      label: isAndroid ? "Android radio" : isMacPeripheral ? "Mac radio" : "Desktop radio",
+      label: localMeshLabel(runtimePlatform),
       caps: ["ble", "chat", "ping"],
       heartbeatMs: 5000,
       defaultTtl: 6,
@@ -185,30 +184,6 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
       void stop();
     };
   }, [runtimePlatform, connectedId, peripheralLinkCount, writeUuid, macAdvertise]);
-
-  useEffect(() => {
-    if (staleLinkTimer.current) {
-      clearTimeout(staleLinkTimer.current);
-      staleLinkTimer.current = null;
-    }
-    if (isPeripheral || !running || !connectedId || peers.length > 0) return;
-
-    staleLinkTimer.current = setTimeout(() => {
-      const rt = runtimeRef.current;
-      if (!rt || rt.node.knownPeers().length > 0) return;
-      log("stale BLE link: no mesh hello, reconnecting");
-      void invoke("disconnect_device", { deviceId: connectedId }).catch((err) => {
-        log(`stale link disconnect failed: ${String(err)}`);
-      });
-    }, 12000);
-
-    return () => {
-      if (staleLinkTimer.current) {
-        clearTimeout(staleLinkTimer.current);
-        staleLinkTimer.current = null;
-      }
-    };
-  }, [isPeripheral, running, connectedId, peers.length]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -415,6 +390,20 @@ function shortNode(id: string | undefined): string {
 
 function rtPeerLabel(id: string, peers: PeerRecord[]): string {
   return peers.find((peer) => peer.id === id)?.label ?? shortNode(id);
+}
+
+function localMeshLabel(runtimePlatform: string): string {
+  if (typeof window === "undefined") {
+    return runtimePlatform === "android" ? "Android radio" : "Mac radio";
+  }
+  const saved = window.localStorage.getItem(DEVICE_LABEL_KEY);
+  if (saved) return saved;
+
+  const platform = runtimePlatform === "android" ? "Droid" : runtimePlatform === "macos" ? "Mac" : "Desktop";
+  const suffix = globalThis.crypto.randomUUID().slice(0, 4).toUpperCase();
+  const label = `${platform}-${suffix}`;
+  window.localStorage.setItem(DEVICE_LABEL_KEY, label);
+  return label;
 }
 
 function StatusTile({ label, value, tone, active = false }: { label: string; value: string; tone: "ok" | "wait" | "bad"; active?: boolean }) {
