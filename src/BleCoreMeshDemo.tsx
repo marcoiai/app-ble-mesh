@@ -31,6 +31,8 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
   const [logs, setLogs] = useState<string[]>([]);
   const [text, setText] = useState("radio mesh payload");
   const [rtt, setRtt] = useState<number | null>(null);
+  const [lastHello, setLastHello] = useState<string | null>(null);
+  const [lastPingStatus, setLastPingStatus] = useState<"idle" | "sent" | "ok" | "fail">("idle");
   const [busy, setBusy] = useState(false);
 
   const isAndroid = runtimePlatform === "android";
@@ -88,10 +90,14 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
     const unsubs: Array<() => void> = [
       chat.on(room, (msg) => setMessages((prev) => [...prev.slice(-7), msg])),
       node.events.on("peer:join", (peer) => {
+        setLastHello(`${peer.label} ${peer.direct ? "direct" : `${peer.hops} hop`}`);
         log(`peer joined: ${peer.label} (${peer.hops} hop)`);
         refreshPeers();
       }),
-      node.events.on("peer:update", refreshPeers),
+      node.events.on("peer:update", (peer) => {
+        setLastHello(`${peer.label} ${peer.direct ? "direct" : `${peer.hops} hop`}`);
+        refreshPeers();
+      }),
       node.events.on("peer:leave", (peer) => {
         log(`peer left: ${peer.label}`);
         refreshPeers();
@@ -101,6 +107,8 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
     runtimeRef.current = { node, chat, unsubs };
     await node.start();
     setRunning(true);
+    setLastPingStatus("idle");
+    setLastHello(null);
     log(isAndroid ? "BLE core transport advertising/listening" : "BLE core transport linked to connected device");
     refreshPeers();
   };
@@ -128,11 +136,14 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
     if (!rt || !peer) return;
     setBusy(true);
     setRtt(null);
+    setLastPingStatus("sent");
     try {
       const ms = await rt.node.ping(peer.id, 3500);
       setRtt(ms);
+      setLastPingStatus("ok");
       log(`ping ${peer.label}: ${ms}ms`);
     } catch (err) {
+      setLastPingStatus("fail");
       log(`ping failed: ${String(err)}`);
     } finally {
       setBusy(false);
@@ -145,7 +156,8 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
         <div>
           <h2 style={title}>BLE Core Carrier</h2>
           <p style={subtitle}>
-            Same mesh core, now through BLE. Payloads stay compressed/encrypted by MeshNode.
+            Role: {isAndroid ? "peripheral/listener" : connectedId ? "central/connected" : "waiting"}.
+            {" "}Hello and ping show the live mesh link.
           </p>
         </div>
         <span style={status(running)}>{running ? "online" : "waiting"}</span>
@@ -155,15 +167,20 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
         <p style={hint}>Connect to a writable 0xFEED device to bind the BLE carrier.</p>
       )}
 
+      <div style={statusGrid}>
+        <StatusTile label="Role" value={isAndroid ? "Peripheral" : connectedId ? "Central" : "Waiting"} tone={running ? "ok" : "wait"} />
+        <StatusTile label="HELLO" value={lastHello ?? "Waiting"} tone={lastHello ? "ok" : "wait"} />
+        <StatusTile label="Peers" value={String(peers.length)} tone={peers.length > 0 ? "ok" : "wait"} />
+        <StatusTile label="PING" value={pingLabel(lastPingStatus, rtt)} tone={lastPingStatus === "ok" ? "ok" : lastPingStatus === "fail" ? "bad" : "wait"} />
+      </div>
+
       <div style={row}>
-        <button onClick={() => void start()} disabled={!canStart} style={button("#111")}>
+        <button onClick={ping} disabled={!running || peers.length === 0 || busy} style={bigButton(lastPingStatus)}>
+          {busy ? "Pinging..." : "Ping peer"}
+        </button>
+        <button onClick={() => void start()} disabled={!canStart} style={button("#5f6368")}>
           Restart carrier
         </button>
-        <button onClick={ping} disabled={!running || peers.length === 0 || busy} style={button("#0b6bcb")}>
-          {busy ? "Pinging..." : "Ping first peer"}
-        </button>
-        <span style={metric}>Peers: {peers.length}</span>
-        <span style={metric}>RTT: {rtt == null ? "waiting" : `${rtt}ms`}</span>
       </div>
 
       <div style={row}>
@@ -217,6 +234,22 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
   );
 }
 
+function StatusTile({ label, value, tone }: { label: string; value: string; tone: "ok" | "wait" | "bad" }) {
+  return (
+    <div style={tile(tone)}>
+      <span style={tileLabel}>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function pingLabel(statusValue: "idle" | "sent" | "ok" | "fail", rtt: number | null): string {
+  if (statusValue === "ok") return rtt == null ? "OK" : `${rtt}ms`;
+  if (statusValue === "sent") return "Sent";
+  if (statusValue === "fail") return "Failed";
+  return "Ready";
+}
+
 const panel: React.CSSProperties = {
   border: "1px solid #d9dde3",
   borderRadius: 8,
@@ -260,6 +293,28 @@ const row: React.CSSProperties = {
   marginTop: 12,
 };
 
+const statusGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: 8,
+  marginTop: 14,
+};
+
+const tile = (tone: "ok" | "wait" | "bad"): React.CSSProperties => ({
+  border: `1px solid ${tone === "ok" ? "#9fd3b5" : tone === "bad" ? "#efb5b5" : "#d8dde5"}`,
+  borderRadius: 6,
+  padding: "9px 10px",
+  background: tone === "ok" ? "#f0fbf5" : tone === "bad" ? "#fff5f5" : "#f8fafc",
+  minHeight: 54,
+});
+
+const tileLabel: React.CSSProperties = {
+  display: "block",
+  color: "#687586",
+  fontSize: 11,
+  marginBottom: 2,
+};
+
 const button = (bg: string): React.CSSProperties => ({
   border: 0,
   borderRadius: 5,
@@ -271,6 +326,12 @@ const button = (bg: string): React.CSSProperties => ({
   boxShadow: "none",
 });
 
+const bigButton = (statusValue: "idle" | "sent" | "ok" | "fail"): React.CSSProperties => ({
+  ...button(statusValue === "ok" ? "#198754" : statusValue === "fail" ? "#d9534f" : "#0b6bcb"),
+  fontSize: 15,
+  padding: "11px 18px",
+});
+
 const input: React.CSSProperties = {
   flex: "1 1 240px",
   minWidth: 0,
@@ -278,11 +339,6 @@ const input: React.CSSProperties = {
   border: "1px solid #ccd3dc",
   borderRadius: 5,
   boxShadow: "none",
-};
-
-const metric: React.CSSProperties = {
-  color: "#334155",
-  fontSize: 13,
 };
 
 const grid: React.CSSProperties = {

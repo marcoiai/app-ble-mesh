@@ -29,6 +29,33 @@ fn android_peripheral_send(data: Vec<u8>) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn peripheral_send(data: Vec<u8>) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        ble_android::send(data.clone())?;
+        return Ok(format!(
+            "Notified {} byte(s) to subscribed centrals",
+            data.len()
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        ble_macos::send(data.clone())?;
+        return Ok(format!(
+            "Notified {} byte(s) to subscribed centrals",
+            data.len()
+        ));
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "macos")))]
+    {
+        let _ = data;
+        Err("BLE peripheral send is not available on this platform".to_string())
+    }
+}
+
+#[tauri::command]
 fn macos_peripheral_start(app: tauri::AppHandle) -> Result<MacosPeripheralStatusOut, String> {
     #[cfg(target_os = "macos")]
     {
@@ -143,6 +170,7 @@ pub fn run() {
             macos_peripheral_stop,
             macos_peripheral_status,
             android_peripheral_send,
+            peripheral_send,
             runtime_platform
         ])
         .run(tauri::generate_context!())

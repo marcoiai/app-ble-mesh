@@ -82,7 +82,7 @@ export class BleTransport extends Emitter<TransportEvents> implements Transport 
   private async write(frame: Uint8Array): Promise<void> {
     const data = Array.from(frame);
     if (this.opts.mode === 'peripheral') {
-      await invoke<string>('send_android_peripheral_core_frame', { data });
+      await invoke<string>('peripheral_send', { data });
       return;
     }
 
