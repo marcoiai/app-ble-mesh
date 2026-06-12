@@ -254,7 +254,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
   return (
     <section style={panel}>
       {pingToast && (
-        <div style={toastStyle(pingToast.tone)} role="status">
+        <div style={toastStyle(pingToast.tone)} role="alert" aria-live="assertive">
           {pingToast.text}
         </div>
       )}
@@ -464,15 +464,22 @@ const pingBadge = (statusValue: "idle" | "sent" | "ok" | "fail"): React.CSSPrope
 });
 
 const toastStyle = (tone: "wait" | "ok" | "bad"): React.CSSProperties => ({
+  position: "fixed",
+  top: 22,
+  left: "50%",
+  transform: "translateX(-50%)",
+  zIndex: 9999,
   border: `1px solid ${tone === "ok" ? "#75b798" : tone === "bad" ? "#ea868f" : "#9ec5fe"}`,
-  borderRadius: 8,
-  padding: "10px 12px",
-  marginBottom: 12,
+  borderRadius: 10,
+  padding: "14px 18px",
+  minWidth: 260,
+  maxWidth: "calc(100vw - 32px)",
+  textAlign: "center",
   background: tone === "ok" ? "#d1e7dd" : tone === "bad" ? "#f8d7da" : "#e7f1ff",
   color: tone === "ok" ? "#0f5132" : tone === "bad" ? "#842029" : "#084298",
-  fontSize: 14,
+  fontSize: 16,
   fontWeight: 800,
-  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.12)",
+  boxShadow: "0 18px 46px rgba(15, 23, 42, 0.28)",
 });
 
 const input: React.CSSProperties = {
