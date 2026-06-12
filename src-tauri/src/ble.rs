@@ -127,6 +127,7 @@ pub struct DeviceInfo {
     // periféricos por serviço (ex: 0xFEED do levelup) em vez de pelo nome.
     pub services: Vec<String>,
     pub service_data_keys: Vec<String>,
+    pub manufacturer_data_keys: Vec<u16>,
 }
 
 #[derive(Serialize, Clone)]
@@ -237,15 +238,23 @@ pub async fn scan_devices(state: tauri::State<'_, BleState>) -> Result<Vec<Devic
     for p in peripherals {
         let id = p.id().to_string();
         let connected = p.is_connected().await.unwrap_or(false);
-        let (name, rssi, services, service_data_keys) = match p.properties().await {
-            Ok(Some(props)) => (
-                props.local_name.unwrap_or_else(|| "(unnamed)".to_string()),
-                props.rssi,
-                props.services.iter().map(|u| u.to_string()).collect(),
-                props.service_data.keys().map(|u| u.to_string()).collect(),
-            ),
-            _ => ("(unnamed)".to_string(), None, Vec::new(), Vec::new()),
-        };
+        let (name, rssi, services, service_data_keys, manufacturer_data_keys) =
+            match p.properties().await {
+                Ok(Some(props)) => (
+                    props.local_name.unwrap_or_else(|| "(unnamed)".to_string()),
+                    props.rssi,
+                    props.services.iter().map(|u| u.to_string()).collect(),
+                    props.service_data.keys().map(|u| u.to_string()).collect(),
+                    props.manufacturer_data.keys().copied().collect(),
+                ),
+                _ => (
+                    "(unnamed)".to_string(),
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                ),
+            };
         devices.push(DeviceInfo {
             id,
             name,
@@ -253,6 +262,7 @@ pub async fn scan_devices(state: tauri::State<'_, BleState>) -> Result<Vec<Devic
             connected,
             services,
             service_data_keys,
+            manufacturer_data_keys,
         });
     }
 

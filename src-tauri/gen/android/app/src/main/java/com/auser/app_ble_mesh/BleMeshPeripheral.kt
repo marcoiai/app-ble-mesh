@@ -154,6 +154,7 @@ object BleMeshPeripheral {
             .build()
         val scanResponse = AdvertiseData.Builder()
             .addServiceData(ParcelUuid(SERVICE_UUID), byteArrayOf(0x62, 0x72, 0x69, 0x64, 0x67, 0x65))
+            .addManufacturerData(0xffff, byteArrayOf(0x73, 0x75, 0x62, 0x4e, 0x6f, 0x64, 0x65))
             .build()
         leAdvertiser.startAdvertising(settings, data, scanResponse, advertiseCallback)
         advertiser = leAdvertiser

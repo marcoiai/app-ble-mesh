@@ -14,6 +14,7 @@ interface DeviceInfo {
   connected: boolean;
   services: string[];
   service_data_keys?: string[];
+  manufacturer_data_keys?: number[];
 }
 
 // Serviço anunciado pelo levelup (0xFEED na forma curta).
@@ -39,7 +40,8 @@ function isBridgeCandidate(device: DeviceInfo): boolean {
   const hasFeedServiceData = device.service_data_keys?.some(
     (key) => key.toLowerCase() === FEED_UUID
   );
-  return Boolean(hasFeedServiceData);
+  const hasSubNodeManufacturerMarker = device.manufacturer_data_keys?.includes(0xffff);
+  return Boolean(hasFeedServiceData || hasSubNodeManufacturerMarker);
 }
 
 interface CharacteristicInfo {
@@ -434,8 +436,14 @@ function App() {
       }
     };
 
-    const first = window.setTimeout(autoJoin, 600);
-    const timer = window.setInterval(autoJoin, 8000);
+    const scanIntervalMs =
+      activeConnectedId && bridgeConnectedId.current === activeConnectedId
+        ? 60000
+        : activeConnectedId
+          ? 20000
+          : 8000;
+    const first = window.setTimeout(autoJoin, activeConnectedId ? scanIntervalMs : 600);
+    const timer = window.setInterval(autoJoin, scanIntervalMs);
     return () => {
       cancelled = true;
       window.clearTimeout(first);
