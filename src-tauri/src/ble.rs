@@ -469,6 +469,7 @@ pub async fn connect_device(
             );
         }
         println!("[NOTIFY] Notification stream for {} ended.", dev_id);
+        connected_clone.lock().unwrap().remove(&dev_id);
     });
 
     Ok(services)

@@ -26,7 +26,7 @@ import java.util.UUID
 @SuppressLint("MissingPermission")
 object BleMeshPeripheral {
     private const val TAG = "BleMeshPeripheral"
-    private const val MAX_NOTIFY_QUEUE_PER_DEVICE = 24
+    private const val MAX_NOTIFY_QUEUE_PER_DEVICE = 256
 
     private val SERVICE_UUID: UUID = UUID.fromString("0000FEED-0000-1000-8000-00805F9B34FB")
     private val CHAR_UUID: UUID = UUID.fromString("0000FEE1-0000-1000-8000-00805F9B34FB")
