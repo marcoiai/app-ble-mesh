@@ -23,10 +23,10 @@ const advertisesFeed = (d: DeviceInfo) =>
 const OPCODE_PING = 2;
 const OPCODE_PONG = 3;
 
-function pickMeshCandidate(devices: DeviceInfo[]): DeviceInfo | null {
+function meshCandidates(devices: DeviceInfo[]): DeviceInfo[] {
   return [...devices]
     .filter(advertisesFeed)
-    .sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999))[0] ?? null;
+    .sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999));
 }
 
 interface CharacteristicInfo {
@@ -165,7 +165,7 @@ function App() {
           if (platform === "android") {
             addLog("📣 Android BLE peripheral starts automatically.");
             setAutoMesh(false);
-            setAutoMeshStatus("Advertising is on. Turn Auto mesh on to try Android central scan.");
+            setAutoMeshStatus("Advertising is on. Other mesh nodes can join this Android automatically.");
           } else if (platform === "macos") {
             setAutoMesh(true);
             setAutoMeshStatus("Scanning for 0xFEED nodes...");
@@ -342,26 +342,40 @@ function App() {
         const found = await invoke<DeviceInfo[]>("scan_devices");
         if (cancelled) return;
         setDevices(found);
-        const candidate = pickMeshCandidate(found);
-        if (!candidate) {
+        const candidates = meshCandidates(found);
+        if (candidates.length === 0) {
           setAutoMeshStatus("No mesh node nearby yet.");
           return;
         }
 
-        setConnectingId(candidate.id);
-        setAutoMeshStatus(`Connecting to ${candidate.name}...`);
-        const svcs = await invoke<ServiceInfo[]>("connect_device", { id: candidate.id });
-        if (cancelled) return;
-        setServices(svcs);
-        setConnectedIds((prev) => (prev.includes(candidate.id) ? prev : [...prev, candidate.id]));
-        const allCharacteristics = svcs.flatMap((s) => s.characteristics);
-        const feedWritable = allCharacteristics.find(
-          (c) => c.write && c.uuid.toLowerCase() === FEED_CHAR_UUID
-        );
-        const firstWritable = feedWritable ?? allCharacteristics.find((c) => c.write);
-        if (firstWritable) setWriteUuid(firstWritable.uuid);
-        setAutoMeshStatus(`Online via ${candidate.name}.`);
-        addLog(`🕸️ Auto mesh connected to ${candidate.name}`);
+        let lastError: unknown = null;
+        for (const candidate of candidates) {
+          if (cancelled) return;
+          setConnectingId(candidate.id);
+          setAutoMeshStatus(`Joining mesh via ${candidate.name}...`);
+          try {
+            const svcs = await invoke<ServiceInfo[]>("connect_device", { id: candidate.id });
+            if (cancelled) return;
+            setServices(svcs);
+            setConnectedIds((prev) => (prev.includes(candidate.id) ? prev : [...prev, candidate.id]));
+            const allCharacteristics = svcs.flatMap((s) => s.characteristics);
+            const feedWritable = allCharacteristics.find(
+              (c) => c.write && c.uuid.toLowerCase() === FEED_CHAR_UUID
+            );
+            const firstWritable = feedWritable ?? allCharacteristics.find((c) => c.write);
+            if (firstWritable) setWriteUuid(firstWritable.uuid);
+            setAutoMeshStatus(`Online via ${candidate.name}.`);
+            addLog(`🕸️ Auto mesh connected to ${candidate.name}`);
+            return;
+          } catch (e) {
+            lastError = e;
+            addLog(`↪️ Auto mesh skipped ${candidate.name}: ${e}`);
+          } finally {
+            if (!cancelled) setConnectingId(null);
+          }
+        }
+
+        setAutoMeshStatus(`Auto mesh waiting: ${String(lastError ?? "no connectable node")}`);
       } catch (e) {
         if (!cancelled) {
           if (runtimePlatform === "macos" && looksLikeBleRadioError(e)) {
@@ -372,7 +386,6 @@ function App() {
       } finally {
         if (!cancelled) {
           setIsScanning(false);
-          setConnectingId(null);
         }
         inFlight = false;
       }
