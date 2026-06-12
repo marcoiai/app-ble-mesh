@@ -45,6 +45,7 @@ const OPCODE_CORE_FRAME = 16;
 export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAdvertise }: BleCoreMeshDemoProps) {
   const runtimeRef = useRef<Runtime | null>(null);
   const lastVisualHelloId = useRef<string | null>(null);
+  const lastPrivateFrameAt = useRef(0);
   const [running, setRunning] = useState(false);
   const [peers, setPeers] = useState<PeerRecord[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -179,7 +180,11 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
           log(`PING frame from ${shortNode(env.from)}`);
         }
       } catch {
-        // Non-JSON core frames will be handled by the real transport path.
+        const now = Date.now();
+        if (now - lastPrivateFrameAt.current > 2000) {
+          lastPrivateFrameAt.current = now;
+          log(`private mesh frame received (${frame.payload_text.length} byte preview)`);
+        }
       }
     }).then((off) => {
       unlisten = off;
