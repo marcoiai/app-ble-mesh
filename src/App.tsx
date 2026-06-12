@@ -258,7 +258,7 @@ function App() {
 
   const handleConnect = async (device: DeviceInfo) => {
     if (activeConnectedId && activeConnectedId !== device.id) {
-      addLog("⚠️ One BLE link at a time for now. Disconnect the current node before connecting another.");
+      addLog("⚠️ This Mac can connect to one BLE peripheral at a time. Multiple Macs can still connect through the same Droid node.");
       return;
     }
     if (!advertisesFeed(device)) {
@@ -490,7 +490,7 @@ function App() {
                     <button
                       onClick={() => handleConnect(d)}
                       disabled={connectingId != null || !advertisesFeed(d) || blockedByActiveLink}
-                      title={blockedByActiveLink ? "Disconnect the current node before connecting another." : undefined}
+                      title={blockedByActiveLink ? "This Mac can connect to one BLE peripheral at a time. Use a shared Droid node for multi-peer mesh." : undefined}
                       style={miniBtn(advertisesFeed(d) && !blockedByActiveLink ? "#0275d8" : "#777")}
                     >
                       {isConnecting

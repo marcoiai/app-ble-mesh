@@ -158,7 +158,9 @@ export class BleTransport extends Emitter<TransportEvents> implements Transport 
     if (!msg || msg.from === this.peerId) return;
     this.touch(msg.from);
     if (msg.t === 'frame') {
-      if (msg.to && msg.to !== this.peerId) return;
+      // Do not filter by the transport-level target here. BLE peripheral mode is
+      // effectively a tiny shared bus: a relay node must be able to receive a
+      // frame even when the final mesh destination is someone else.
       this.emit('frame', { from: msg.from, frame: b64ToFrame(msg.data) });
     } else if (msg.t === 'bye') {
       if (this.peers.delete(msg.from)) this.emit('peerDown', { peer: msg.from });
