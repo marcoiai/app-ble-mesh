@@ -640,6 +640,54 @@ pub async fn send_android_peripheral_core_frame(
     }
 }
 
+#[tauri::command]
+pub async fn send_peripheral_core_frame(
+    app: AppHandle,
+    data: Vec<u8>,
+    state: tauri::State<'_, BleState>,
+) -> Result<String, String> {
+    let sequence_number = next_sequence(&state.sequence);
+    let frame = ProtocolFrame {
+        src_addr: state.node_addr,
+        dst_addr: protocol::BROADCAST_ADDR,
+        ttl: 4,
+        sequence_number,
+        opcode: protocol::OPCODE_CORE_FRAME,
+        payload: data,
+        checksum: 0,
+    };
+    let packets = protocol::encode_for_ble_transport(&frame);
+
+    #[cfg(target_os = "android")]
+    {
+        for packet in &packets {
+            crate::ble_android::send(packet.clone())?;
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        for packet in &packets {
+            crate::ble_macos::send(packet.clone())?;
+        }
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "macos")))]
+    {
+        let _ = app;
+        let _ = packets;
+        return Err("BLE peripheral core frames are not available on this platform".to_string());
+    }
+
+    emit_protocol_transport(&app, sequence_number, &packets);
+    Ok(format!(
+        "Sent peripheral mesh core frame seq={} packets={} bytes={}",
+        sequence_number,
+        packets.len(),
+        packets.iter().map(Vec::len).sum::<usize>()
+    ))
+}
+
 async fn write_protocol_packets_to_device(
     device_id: &str,
     char_uuid: &str,

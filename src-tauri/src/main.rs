@@ -142,6 +142,7 @@ async fn main() {
             ble::send_protocol_text_to_device,
             ble::send_protocol_ping_to_device,
             ble::send_core_frame_to_device,
+            ble::send_peripheral_core_frame,
             ble::send_android_peripheral_ping,
             ble::send_android_peripheral_core_frame,
             ble::protocol_node_info,
