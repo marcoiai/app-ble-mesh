@@ -117,6 +117,19 @@ fn mesh_ble_start(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn ble_radio_enabled() -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        return ble_android::bluetooth_enabled();
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(true)
+    }
+}
+
 #[derive(serde::Serialize)]
 struct MacosPeripheralStatusOut {
     running: bool,
@@ -181,11 +194,13 @@ pub fn run() {
             ble::send_android_peripheral_core_frame,
             ble::protocol_node_info,
             ble::disconnect_device,
+            ble::connected_device_ids,
             ble::start_hardware_mesh_scan,
             macos_peripheral_start,
             macos_peripheral_stop,
             macos_peripheral_status,
             mesh_ble_start,
+            ble_radio_enabled,
             android_peripheral_send,
             peripheral_send,
             runtime_platform

@@ -70,6 +70,10 @@ pub fn start(app: AppHandle) {
     }
 }
 
+pub fn bluetooth_enabled() -> Result<bool, String> {
+    call_static_bool("isBluetoothEnabled")
+}
+
 pub fn send(data: Vec<u8>) -> Result<(), String> {
     let jvm = JVM.get().ok_or("ble-android: not registered")?;
     let env = jvm
@@ -101,4 +105,17 @@ fn call_static_void(name: &str) -> Result<(), String> {
     env.call_static_method(cls, name, "()V", &[])
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn call_static_bool(name: &str) -> Result<bool, String> {
+    let jvm = JVM.get().ok_or("ble-android: not registered")?;
+    let env = jvm
+        .attach_current_thread()
+        .map_err(|error| error.to_string())?;
+    let class = CLASS.get().ok_or("ble-android: no class")?;
+    let cls = JClass::from(class.as_obj());
+    env.call_static_method(cls, name, "()Z", &[])
+        .map_err(|error| error.to_string())?
+        .z()
+        .map_err(|error| error.to_string())
 }

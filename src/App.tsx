@@ -97,6 +97,17 @@ function shortUuid(uuid: string): string {
   return m ? `0x${m[1].toUpperCase()}` : uuid;
 }
 
+function looksLikeBleRadioError(error: unknown): boolean {
+  const text = String(error).toLowerCase();
+  return (
+    text.includes("bluetooth") ||
+    text.includes("powered off") ||
+    text.includes("poweredoff") ||
+    text.includes("adapter") ||
+    text.includes("unauthorized")
+  );
+}
+
 function App() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -111,6 +122,7 @@ function App() {
   const [autoMeshStatus, setAutoMeshStatus] = useState("Waiting for platform...");
   const [macAdvertise, setMacAdvertise] = useState(false);
   const [runtimePlatform, setRuntimePlatform] = useState("unknown");
+  const [bleRadioEnabled, setBleRadioEnabled] = useState<boolean | null>(null);
   const [coreDemoOpen, setCoreDemoOpen] = useState(false);
   const [levelPackOpen, setLevelPackOpen] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
@@ -124,6 +136,7 @@ function App() {
   });
   const logRef = useRef<HTMLDivElement>(null);
   const pendingPings = useRef<Map<number, number>>(new Map());
+  const lastRadioEnabled = useRef<boolean | null>(null);
   const activeConnectedId = connectedIds[0] ?? null;
   const supportsCentralMesh = runtimePlatform === "macos" || runtimePlatform === "android";
   const canSendMesh =
@@ -159,6 +172,16 @@ function App() {
           }
         })
         .catch(() => setRuntimePlatform("unknown"));
+      invoke<string[]>("connected_device_ids")
+        .then((ids) => {
+          if (ids.length > 0) {
+            setConnectedIds(ids);
+            setWriteUuid(FEED_CHAR_UUID);
+            setAutoMeshStatus(`Restored ${ids.length} active BLE link(s) after reload.`);
+            addLog(`🔁 Restored active BLE link: ${ids.join(", ")}`);
+          }
+        })
+        .catch(() => {});
       unlisten = await listen<NotificationPayload>("ble-notification", (event) => {
         const { char_uuid, value } = event.payload;
         const ascii = value
@@ -211,6 +234,16 @@ function App() {
         );
       });
       unlistenMacPeripheral = await listen<string>("macos-peripheral-log", (event) => {
+        if (event.payload.includes("STATE poweredOff")) {
+          setBleRadioEnabled(false);
+          setAutoMeshStatus("Bluetooth is off. Turn it on to join the mesh.");
+        } else if (event.payload.includes("STATE poweredOn")) {
+          setBleRadioEnabled(true);
+          setAutoMeshStatus(activeConnectedId ? "Mesh link online." : "Bluetooth is on. Scanning for 0xFEED nodes...");
+        } else if (event.payload.includes("STATE unauthorized")) {
+          setBleRadioEnabled(false);
+          setAutoMeshStatus("Bluetooth permission is blocked for this app.");
+        }
         addLog(`📣 MAC ADV ${event.payload}`);
       });
       invoke<string>("runtime_platform")
@@ -236,14 +269,56 @@ function App() {
     logRef.current?.scrollTo(0, logRef.current.scrollHeight);
   }, [logs]);
 
+  useEffect(() => {
+    if (runtimePlatform === "unknown") return;
+    if (runtimePlatform !== "android") {
+      setBleRadioEnabled(null);
+      return;
+    }
+
+    let cancelled = false;
+    const refreshRadio = async () => {
+      try {
+        const enabled = await invoke<boolean>("ble_radio_enabled");
+        if (cancelled) return;
+        setBleRadioEnabled(enabled);
+        if (lastRadioEnabled.current !== enabled) {
+          lastRadioEnabled.current = enabled;
+          if (!enabled) {
+            setAutoMeshStatus("Bluetooth is off. Turn it on to join the mesh.");
+            addLog("⚠️ Bluetooth is off.");
+          } else if (runtimePlatform === "android") {
+            invoke("mesh_ble_start").catch(() => {});
+            setAutoMeshStatus("Bluetooth is on. Android is advertising 0xFEED.");
+            addLog("✅ Bluetooth is on.");
+          }
+        }
+      } catch {
+        if (!cancelled) setBleRadioEnabled(null);
+      }
+    };
+
+    refreshRadio();
+    const timer = window.setInterval(refreshRadio, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [runtimePlatform]);
+
   const handleScan = async () => {
     setIsScanning(true);
     addLog("🔍 Scanning for nearby BLE devices (~4s)...");
     try {
       const found = await invoke<DeviceInfo[]>("scan_devices");
       setDevices(found);
+      setBleRadioEnabled((prev) => (runtimePlatform === "macos" ? true : prev));
       addLog(`✅ Found ${found.length} device(s).`);
     } catch (e) {
+      if (runtimePlatform === "macos" && looksLikeBleRadioError(e)) {
+        setBleRadioEnabled(false);
+        setAutoMeshStatus("Bluetooth is off or unavailable. Turn it on, then scan again.");
+      }
       addLog(`❌ Scan failed: ${e}`);
     } finally {
       setIsScanning(false);
@@ -251,7 +326,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (!autoMesh || !supportsCentralMesh || activeConnectedId) {
+    if (!autoMesh || !supportsCentralMesh || activeConnectedId || (runtimePlatform === "android" && bleRadioEnabled === false)) {
       return;
     }
 
@@ -289,6 +364,9 @@ function App() {
         addLog(`🕸️ Auto mesh connected to ${candidate.name}`);
       } catch (e) {
         if (!cancelled) {
+          if (runtimePlatform === "macos" && looksLikeBleRadioError(e)) {
+            setBleRadioEnabled(false);
+          }
           setAutoMeshStatus(`Auto mesh waiting: ${String(e)}`);
         }
       } finally {
@@ -307,7 +385,7 @@ function App() {
       window.clearTimeout(first);
       window.clearInterval(timer);
     };
-  }, [autoMesh, supportsCentralMesh, activeConnectedId]);
+  }, [autoMesh, supportsCentralMesh, activeConnectedId, bleRadioEnabled, runtimePlatform]);
 
   const handleToggleMacAdvertise = async () => {
     if (runtimePlatform !== "macos") {
@@ -483,6 +561,23 @@ function App() {
             </label>
           )}
 
+          {bleRadioEnabled === false && (
+            <div
+              style={{
+                marginBottom: 10,
+                padding: "8px 10px",
+                border: "1px solid #e6a23c",
+                borderRadius: 6,
+                background: "#fff7e6",
+                color: "#8a5a00",
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              Bluetooth is off. Turn it on and the mesh will retry automatically.
+            </div>
+          )}
+
           {runtimePlatform === "macos" ? (
             <>
               <button
@@ -508,8 +603,8 @@ function App() {
 
           <button
             onClick={handleScan}
-            disabled={isScanning || runtimePlatform === "unknown"}
-            style={btn(runtimePlatform === "unknown" ? "#777" : "#5cb85c")}
+            disabled={isScanning || runtimePlatform === "unknown" || (runtimePlatform === "android" && bleRadioEnabled === false)}
+            style={btn(runtimePlatform === "unknown" || (runtimePlatform === "android" && bleRadioEnabled === false) ? "#777" : "#5cb85c")}
           >
             {isScanning
                 ? "Scanning..."

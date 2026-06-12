@@ -13,6 +13,9 @@ use crate::protocol::{self, ProtocolFrame, ProtocolNodeInfo};
 
 const FEED_SERVICE_UUID: &str = "0000feed-0000-1000-8000-00805f9b34fb";
 const FEED_CHAR_UUID: &str = "0000fee1-0000-1000-8000-00805f9b34fb";
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
+const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(6);
+const SUBSCRIBE_TIMEOUT: Duration = Duration::from_secs(4);
 
 // =====================================================================================
 //  MODELO DE PACOTE DO MESH (transporte agnóstico que viaja DENTRO de uma característica)
@@ -284,19 +287,23 @@ pub async fn connect_device(
     }
 
     if !peripheral.is_connected().await.unwrap_or(false) {
-        peripheral
-            .connect()
+        tokio::time::timeout(CONNECT_TIMEOUT, peripheral.connect())
             .await
+            .map_err(|_| format!("Connect timed out for {id}"))?
             .map_err(|e| format!("Connect failed for {id}: {e}"))?;
         println!("[CONNECT] Linked to {}", id);
     }
 
     let _ = adapter.stop_scan().await;
 
-    peripheral
-        .discover_services()
+    if let Err(error) = tokio::time::timeout(DISCOVERY_TIMEOUT, peripheral.discover_services())
         .await
-        .map_err(|e| format!("Service discovery failed for {id}: {e}"))?;
+        .map_err(|_| format!("Service discovery timed out for {id}"))?
+        .map_err(|e| format!("Service discovery failed for {id}: {e}"))
+    {
+        let _ = peripheral.disconnect().await;
+        return Err(error);
+    }
 
     // Monta o mapa de serviços/características para o frontend.
     let mut services: Vec<ServiceInfo> = Vec::new();
@@ -344,19 +351,25 @@ pub async fn connect_device(
 
         let mut subscribed = false;
         for attempt in 1..=3 {
-            match peripheral.subscribe(&c).await {
-                Ok(()) => {
-                    println!("[CONNECT] Subscribed to {} on attempt {}", c.uuid, attempt);
-                    subscribed = true;
-                    mesh_subscribed = true;
-                    break;
+            match tokio::time::timeout(SUBSCRIBE_TIMEOUT, peripheral.subscribe(&c)).await {
+                Err(_) => {
+                    println!(
+                        "[CONNECT] Subscribe to {} timed out on attempt {}",
+                        c.uuid, attempt
+                    );
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     println!(
                         "[CONNECT] Could not subscribe to {} on attempt {}: {}",
                         c.uuid, attempt, e
                     );
                     tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+                Ok(Ok(())) => {
+                    println!("[CONNECT] Subscribed to {} on attempt {}", c.uuid, attempt);
+                    subscribed = true;
+                    mesh_subscribed = true;
+                    break;
                 }
             }
         }
@@ -366,15 +379,21 @@ pub async fn connect_device(
     }
 
     if !mesh_subscribed {
+        let _ = peripheral.disconnect().await;
         return Err(format!(
             "Connected to {id}, but could not subscribe to mesh notifications on 0xFEE1."
         ));
     }
 
-    let mut notification_stream = peripheral
-        .notifications()
-        .await
-        .map_err(|e| format!("Connected to {id}, but notification stream failed: {e}"))?;
+    let mut notification_stream = match peripheral.notifications().await {
+        Ok(stream) => stream,
+        Err(e) => {
+            let _ = peripheral.disconnect().await;
+            return Err(format!(
+                "Connected to {id}, but notification stream failed: {e}"
+            ));
+        }
+    };
 
     // Guarda o handle conectado para writes/subscribe futuros.
     state
@@ -787,6 +806,30 @@ pub async fn disconnect_device(
     } else {
         Err("Device was not connected.".to_string())
     }
+}
+
+#[tauri::command]
+pub async fn connected_device_ids(
+    state: tauri::State<'_, BleState>,
+) -> Result<Vec<String>, String> {
+    let entries: Vec<(String, Peripheral)> = state
+        .connected
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, peripheral)| (id.clone(), peripheral.clone()))
+        .collect();
+    let mut active = Vec::new();
+
+    for (id, peripheral) in entries {
+        if peripheral.is_connected().await.unwrap_or(false) {
+            active.push(id);
+        } else {
+            state.connected.lock().unwrap().remove(&id);
+        }
+    }
+
+    Ok(active)
 }
 
 pub fn emit_protocol_frame(app: &AppHandle, frame: ProtocolFrame) {

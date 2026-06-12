@@ -53,6 +53,14 @@ object BleMeshPeripheral {
     }
 
     @JvmStatic
+    fun isBluetoothEnabled(): Boolean {
+        val ctx = appContext ?: return false
+        val manager = ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+            ?: return false
+        return manager.adapter?.isEnabled == true
+    }
+
+    @JvmStatic
     fun start() {
         val ctx = appContext ?: run {
             Log.w(TAG, "start: no context")
