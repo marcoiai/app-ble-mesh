@@ -127,6 +127,10 @@ function looksLikeBleRadioError(error: unknown): boolean {
   );
 }
 
+function sameStringList(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
 function App() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -159,6 +163,7 @@ function App() {
   const pendingPings = useRef<Map<number, number>>(new Map());
   const lastRadioEnabled = useRef<boolean | null>(null);
   const bridgeConnectedId = useRef<string | null>(null);
+  const lastNativeConnectedIds = useRef<string[]>([]);
   const activeConnectedId = connectedIds[0] ?? null;
   const selectedCentralId =
     selectedLinkId && connectedIds.includes(selectedLinkId) ? selectedLinkId : activeConnectedId;
@@ -389,6 +394,54 @@ function App() {
       window.clearInterval(timer);
     };
   }, [runtimePlatform]);
+
+  useEffect(() => {
+    if (!supportsCentralMesh) return;
+
+    let cancelled = false;
+    const refreshNativeLinks = async () => {
+      try {
+        const ids = await invoke<string[]>("connected_device_ids");
+        if (cancelled) return;
+
+        const previous = lastNativeConnectedIds.current;
+        if (!sameStringList(previous, ids)) {
+          lastNativeConnectedIds.current = ids;
+          if (previous.length > 0 && ids.length === 0) {
+            setServices([]);
+            setWriteUuid("");
+            bridgeConnectedId.current = null;
+            setAutoMeshStatus("BLE link dropped. Scanning again...");
+            addLog("🔄 BLE link dropped; auto mesh will reconnect.");
+          } else if (ids.length > 0) {
+            setWriteUuid((current) => current || FEED_CHAR_UUID);
+            addLog(`🔗 Native BLE link active: ${ids.join(", ")}`);
+          }
+        }
+
+        setConnectedIds((current) => (sameStringList(current, ids) ? current : ids));
+        setSelectedLinkId((current) => {
+          if (current && (ids.includes(current) || peripheralConnectedIds.includes(current))) return current;
+          return ids[0] ?? peripheralConnectedIds[0] ?? null;
+        });
+        if (bridgeConnectedId.current && !ids.includes(bridgeConnectedId.current)) {
+          bridgeConnectedId.current = null;
+        }
+      } catch (e) {
+        if (!cancelled && runtimePlatform === "macos" && looksLikeBleRadioError(e)) {
+          setBleRadioEnabled(false);
+          setAutoMeshStatus("Bluetooth is off or unavailable. Turn it on, then scan again.");
+        }
+      }
+    };
+
+    refreshNativeLinks();
+    const timer = window.setInterval(refreshNativeLinks, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [supportsCentralMesh, runtimePlatform, peripheralConnectedIds]);
 
   const handleScan = async () => {
     setIsScanning(true);
