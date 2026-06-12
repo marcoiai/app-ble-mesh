@@ -126,6 +126,7 @@ pub struct DeviceInfo {
     // UUIDs de serviço anunciados no advertisement — usado para identificar
     // periféricos por serviço (ex: 0xFEED do levelup) em vez de pelo nome.
     pub services: Vec<String>,
+    pub service_data_keys: Vec<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -236,13 +237,14 @@ pub async fn scan_devices(state: tauri::State<'_, BleState>) -> Result<Vec<Devic
     for p in peripherals {
         let id = p.id().to_string();
         let connected = p.is_connected().await.unwrap_or(false);
-        let (name, rssi, services) = match p.properties().await {
+        let (name, rssi, services, service_data_keys) = match p.properties().await {
             Ok(Some(props)) => (
                 props.local_name.unwrap_or_else(|| "(unnamed)".to_string()),
                 props.rssi,
                 props.services.iter().map(|u| u.to_string()).collect(),
+                props.service_data.keys().map(|u| u.to_string()).collect(),
             ),
-            _ => ("(unnamed)".to_string(), None, Vec::new()),
+            _ => ("(unnamed)".to_string(), None, Vec::new(), Vec::new()),
         };
         devices.push(DeviceInfo {
             id,
@@ -250,6 +252,7 @@ pub async fn scan_devices(state: tauri::State<'_, BleState>) -> Result<Vec<Devic
             rssi,
             connected,
             services,
+            service_data_keys,
         });
     }
 

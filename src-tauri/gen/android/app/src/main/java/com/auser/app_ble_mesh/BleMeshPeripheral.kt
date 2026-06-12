@@ -152,7 +152,10 @@ object BleMeshPeripheral {
             .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
-        leAdvertiser.startAdvertising(settings, data, advertiseCallback)
+        val scanResponse = AdvertiseData.Builder()
+            .addServiceData(ParcelUuid(SERVICE_UUID), byteArrayOf(0x62, 0x72, 0x69, 0x64, 0x67, 0x65))
+            .build()
+        leAdvertiser.startAdvertising(settings, data, scanResponse, advertiseCallback)
         advertiser = leAdvertiser
         Log.i(TAG, "advertising $SERVICE_UUID")
     }

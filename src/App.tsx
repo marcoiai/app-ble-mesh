@@ -13,6 +13,7 @@ interface DeviceInfo {
   rssi: number | null;
   connected: boolean;
   services: string[];
+  service_data_keys?: string[];
 }
 
 // Serviço anunciado pelo levelup (0xFEED na forma curta).
@@ -26,7 +27,19 @@ const OPCODE_PONG = 3;
 function meshCandidates(devices: DeviceInfo[]): DeviceInfo[] {
   return [...devices]
     .filter(advertisesFeed)
-    .sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999));
+    .sort((a, b) => meshCandidateScore(b) - meshCandidateScore(a));
+}
+
+function meshCandidateScore(device: DeviceInfo): number {
+  const rssi = device.rssi ?? -999;
+  return rssi + (isBridgeCandidate(device) ? 1000 : 0);
+}
+
+function isBridgeCandidate(device: DeviceInfo): boolean {
+  const hasFeedServiceData = device.service_data_keys?.some(
+    (key) => key.toLowerCase() === FEED_UUID
+  );
+  return Boolean(hasFeedServiceData);
 }
 
 interface CharacteristicInfo {
@@ -137,6 +150,7 @@ function App() {
   const logRef = useRef<HTMLDivElement>(null);
   const pendingPings = useRef<Map<number, number>>(new Map());
   const lastRadioEnabled = useRef<boolean | null>(null);
+  const bridgeConnectedId = useRef<string | null>(null);
   const activeConnectedId = connectedIds[0] ?? null;
   const supportsCentralMesh = runtimePlatform === "macos" || runtimePlatform === "android";
   const canSendMesh =
@@ -326,7 +340,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (!autoMesh || !supportsCentralMesh || activeConnectedId || (runtimePlatform === "android" && bleRadioEnabled === false)) {
+    if (!autoMesh || !supportsCentralMesh || (runtimePlatform === "android" && bleRadioEnabled === false)) {
       return;
     }
 
@@ -344,8 +358,36 @@ function App() {
         setDevices(found);
         const candidates = meshCandidates(found);
         if (candidates.length === 0) {
-          setAutoMeshStatus("No mesh node nearby yet.");
+          if (!activeConnectedId) setAutoMeshStatus("No mesh node nearby yet.");
           return;
+        }
+
+        if (activeConnectedId) {
+          if (bridgeConnectedId.current === activeConnectedId) {
+            setAutoMeshStatus("Mesh link online via bridge.");
+            return;
+          }
+          const bridge = candidates.find(
+            (candidate) => candidate.id !== activeConnectedId && isBridgeCandidate(candidate)
+          );
+          if (!bridge) {
+            setAutoMeshStatus("Mesh link online. Watching for bridge nodes...");
+            return;
+          }
+
+          setConnectingId(bridge.id);
+          setAutoMeshStatus(`Bridge node found. Rejoining via ${bridge.name}...`);
+          addLog(`🧭 Bridge node found: ${bridge.name}. Rejoining mesh.`);
+          try {
+            await invoke<string>("disconnect_device", { deviceId: activeConnectedId });
+          } catch (e) {
+            addLog(`⚠️ Rejoin disconnect warning: ${e}`);
+          }
+          if (cancelled) return;
+          setConnectedIds((prev) => prev.filter((id) => id !== activeConnectedId));
+          setServices([]);
+          setWriteUuid("");
+          candidates.splice(0, candidates.length, bridge);
         }
 
         let lastError: unknown = null;
@@ -358,6 +400,7 @@ function App() {
             if (cancelled) return;
             setServices(svcs);
             setConnectedIds((prev) => (prev.includes(candidate.id) ? prev : [...prev, candidate.id]));
+            bridgeConnectedId.current = isBridgeCandidate(candidate) ? candidate.id : null;
             const allCharacteristics = svcs.flatMap((s) => s.characteristics);
             const feedWritable = allCharacteristics.find(
               (c) => c.write && c.uuid.toLowerCase() === FEED_CHAR_UUID
@@ -431,6 +474,7 @@ function App() {
       const svcs = await invoke<ServiceInfo[]>("connect_device", { id: device.id });
       setServices(svcs);
       setConnectedIds((prev) => (prev.includes(device.id) ? prev : [...prev, device.id]));
+      bridgeConnectedId.current = isBridgeCandidate(device) ? device.id : null;
       const charCount = svcs.reduce((n, s) => n + s.characteristics.length, 0);
       addLog(`✅ Connected. ${svcs.length} service(s), ${charCount} characteristic(s).`);
       // Pré-seleciona a primeira característica gravável para conveniência.
@@ -456,6 +500,7 @@ function App() {
       addLog(`❌ Disconnect error: ${e}`);
     }
     setConnectedIds((prev) => prev.filter((id) => id !== deviceId));
+    if (bridgeConnectedId.current === deviceId) bridgeConnectedId.current = null;
     if (activeConnectedId === deviceId) setServices([]);
   };
 
