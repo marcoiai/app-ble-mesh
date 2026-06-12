@@ -23,6 +23,12 @@ const advertisesFeed = (d: DeviceInfo) =>
 const OPCODE_PING = 2;
 const OPCODE_PONG = 3;
 
+function pickMeshCandidate(devices: DeviceInfo[]): DeviceInfo | null {
+  return [...devices]
+    .filter(advertisesFeed)
+    .sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999))[0] ?? null;
+}
+
 interface CharacteristicInfo {
   uuid: string;
   read: boolean;
@@ -101,6 +107,8 @@ function App() {
   const [writeText, setWriteText] = useState("Hello");
   const [nodeAddr, setNodeAddr] = useState<number | null>(null);
   const [feedOnly, setFeedOnly] = useState(true);
+  const [autoMesh, setAutoMesh] = useState(true);
+  const [autoMeshStatus, setAutoMeshStatus] = useState("Waiting for platform...");
   const [macAdvertise, setMacAdvertise] = useState(false);
   const [runtimePlatform, setRuntimePlatform] = useState("unknown");
   const [coreDemoOpen, setCoreDemoOpen] = useState(false);
@@ -239,6 +247,65 @@ function App() {
       setIsScanning(false);
     }
   };
+
+  useEffect(() => {
+    if (!autoMesh || runtimePlatform !== "macos" || activeConnectedId) {
+      return;
+    }
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const autoJoin = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      setIsScanning(true);
+      setAutoMeshStatus("Scanning for 0xFEED nodes...");
+      try {
+        const found = await invoke<DeviceInfo[]>("scan_devices");
+        if (cancelled) return;
+        setDevices(found);
+        const candidate = pickMeshCandidate(found);
+        if (!candidate) {
+          setAutoMeshStatus("No mesh node nearby yet.");
+          return;
+        }
+
+        setConnectingId(candidate.id);
+        setAutoMeshStatus(`Connecting to ${candidate.name}...`);
+        const svcs = await invoke<ServiceInfo[]>("connect_device", { id: candidate.id });
+        if (cancelled) return;
+        setServices(svcs);
+        setConnectedIds((prev) => (prev.includes(candidate.id) ? prev : [...prev, candidate.id]));
+        const allCharacteristics = svcs.flatMap((s) => s.characteristics);
+        const feedWritable = allCharacteristics.find(
+          (c) => c.write && c.uuid.toLowerCase() === FEED_CHAR_UUID
+        );
+        const firstWritable = feedWritable ?? allCharacteristics.find((c) => c.write);
+        if (firstWritable) setWriteUuid(firstWritable.uuid);
+        setAutoMeshStatus(`Online via ${candidate.name}.`);
+        addLog(`🕸️ Auto mesh connected to ${candidate.name}`);
+      } catch (e) {
+        if (!cancelled) {
+          setAutoMeshStatus(`Auto mesh waiting: ${String(e)}`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsScanning(false);
+          setConnectingId(null);
+        }
+        inFlight = false;
+      }
+    };
+
+    const first = window.setTimeout(autoJoin, 600);
+    const timer = window.setInterval(autoJoin, 8000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
+  }, [autoMesh, runtimePlatform, activeConnectedId]);
 
   const handleToggleMacAdvertise = async () => {
     if (runtimePlatform !== "macos") {
@@ -402,6 +469,18 @@ function App() {
         <section style={{ flex: 1 }}>
           {runtimePlatform === "macos" ? (
             <>
+              <label style={{ display: "block", marginBottom: 10, fontSize: 13, color: "#333" }}>
+                <input
+                  type="checkbox"
+                  checked={autoMesh}
+                  onChange={(e) => setAutoMesh(e.target.checked)}
+                />{" "}
+                Auto mesh
+                <span style={{ display: "block", color: "#666", marginTop: 3 }}>
+                  {activeConnectedId ? "Mesh link online." : autoMeshStatus}
+                </span>
+              </label>
+
               <button
                 onClick={handleToggleMacAdvertise}
                 style={btn(macAdvertise ? "#d9534f" : "#111")}
