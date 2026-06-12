@@ -41,11 +41,13 @@ type Runtime = {
 const room = "radio-demo";
 const secret = "levelup-offgrid";
 const OPCODE_CORE_FRAME = 16;
+type PingToast = { text: string; tone: "wait" | "ok" | "bad" };
 
 export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAdvertise }: BleCoreMeshDemoProps) {
   const runtimeRef = useRef<Runtime | null>(null);
   const lastVisualHelloId = useRef<string | null>(null);
   const lastPrivateFrameAt = useRef(0);
+  const pingToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [running, setRunning] = useState(false);
   const [peers, setPeers] = useState<PeerRecord[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -55,6 +57,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
   const [lastHello, setLastHello] = useState<string | null>(null);
   const [lastPingStatus, setLastPingStatus] = useState<"idle" | "sent" | "ok" | "fail">("idle");
   const [pingNotice, setPingNotice] = useState<string | null>(null);
+  const [pingToast, setPingToast] = useState<PingToast | null>(null);
   const [visualPeerCount, setVisualPeerCount] = useState(0);
   const [busy, setBusy] = useState(false);
 
@@ -65,6 +68,14 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
 
   const log = (line: string) => {
     setLogs((prev) => [...prev.slice(-7), `${new Date().toLocaleTimeString()} ${line}`]);
+  };
+
+  const showPingToast = (toast: PingToast, hideAfterMs = 0) => {
+    if (pingToastTimer.current) clearTimeout(pingToastTimer.current);
+    setPingToast(toast);
+    if (hideAfterMs > 0) {
+      pingToastTimer.current = setTimeout(() => setPingToast(null), hideAfterMs);
+    }
   };
 
   const addMessage = (msg: ChatMessage) => {
@@ -135,6 +146,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
     setRunning(true);
     setLastPingStatus("idle");
     setPingNotice(null);
+    setPingToast(null);
     setLastHello(null);
     setVisualPeerCount(0);
     log(isPeripheral ? "BLE core transport advertising/listening" : "BLE core transport linked to connected device");
@@ -201,20 +213,26 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
   const ping = async () => {
     const rt = runtimeRef.current;
     const peer = peers[0];
-    if (!rt || !peer) return;
+    if (!rt || !peer) {
+      showPingToast({ text: "No nearby device to ping yet", tone: "bad" }, 2400);
+      return;
+    }
     setBusy(true);
     setRtt(null);
     setLastPingStatus("sent");
     setPingNotice("Sending ping...");
+    showPingToast({ text: `Pinging ${peer.label}...`, tone: "wait" });
     try {
       const ms = await rt.node.ping(peer.id, 3500);
       setRtt(ms);
       setLastPingStatus("ok");
       setPingNotice(`Ping worked (${ms}ms)`);
+      showPingToast({ text: `Ping worked: ${ms}ms`, tone: "ok" }, 3200);
       log(`ping ${peer.label}: ${ms}ms`);
     } catch (err) {
       setLastPingStatus("fail");
       setPingNotice("Ping timed out");
+      showPingToast({ text: "Ping timed out", tone: "bad" }, 3600);
       log(`ping failed: ${String(err)}`);
     } finally {
       setBusy(false);
@@ -235,6 +253,12 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
 
   return (
     <section style={panel}>
+      {pingToast && (
+        <div style={toastStyle(pingToast.tone)} role="status">
+          {pingToast.text}
+        </div>
+      )}
+
       <div style={header}>
         <div>
           <h2 style={title}>Nearby Mesh</h2>
@@ -437,6 +461,18 @@ const pingBadge = (statusValue: "idle" | "sent" | "ok" | "fail"): React.CSSPrope
   color: statusValue === "ok" ? "#0f5132" : statusValue === "fail" ? "#842029" : "#084298",
   fontSize: 12,
   fontWeight: 700,
+});
+
+const toastStyle = (tone: "wait" | "ok" | "bad"): React.CSSProperties => ({
+  border: `1px solid ${tone === "ok" ? "#75b798" : tone === "bad" ? "#ea868f" : "#9ec5fe"}`,
+  borderRadius: 8,
+  padding: "10px 12px",
+  marginBottom: 12,
+  background: tone === "ok" ? "#d1e7dd" : tone === "bad" ? "#f8d7da" : "#e7f1ff",
+  color: tone === "ok" ? "#0f5132" : tone === "bad" ? "#842029" : "#084298",
+  fontSize: 14,
+  fontWeight: 800,
+  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.12)",
 });
 
 const input: React.CSSProperties = {
