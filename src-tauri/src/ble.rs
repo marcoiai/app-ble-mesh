@@ -1021,7 +1021,11 @@ fn emit_protocol_transport(app: &AppHandle, sequence_number: u32, packets: &[Vec
 }
 
 #[cfg(target_os = "android")]
-pub async fn handle_android_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
+pub async fn handle_android_peripheral_bytes(
+    app: AppHandle,
+    bytes: Vec<u8>,
+    incoming_device_id: Option<String>,
+) {
     use tauri::Manager;
 
     let _ = app.emit("mesh-ble-frame", bytes.clone());
@@ -1043,7 +1047,11 @@ pub async fn handle_android_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
 
     if decision.deliver_locally {
         emit_protocol_frame(&app, frame.clone());
-        emit_mesh_core_frame(&app, &frame, Some("ble-neighbor"));
+        emit_mesh_core_frame(
+            &app,
+            &frame,
+            incoming_device_id.as_deref().or(Some("ble-neighbor")),
+        );
 
         if frame.opcode == protocol::OPCODE_PING {
             let pong = ProtocolFrame {
@@ -1071,7 +1079,9 @@ pub async fn handle_android_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
 
     let packets = protocol::encode_for_ble_transport(&relay_frame);
     for packet in &packets {
-        if let Err(e) = crate::ble_android::send(packet.clone()) {
+        if let Err(e) =
+            crate::ble_android::send_except(packet.clone(), incoming_device_id.as_deref())
+        {
             println!("[BLE Android TX] failed to notify relay packet: {e}");
         }
     }
@@ -1082,7 +1092,10 @@ pub async fn handle_android_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
             dst_addr: relay_frame.dst_addr,
             sequence_number: relay_frame.sequence_number,
             ttl: relay_frame.ttl,
-            target_device_id: "android-subscribers".to_string(),
+            target_device_id: incoming_device_id
+                .as_ref()
+                .map(|id| format!("android-subscribers-except-{id}"))
+                .unwrap_or_else(|| "android-subscribers".to_string()),
             char_uuid: "0000fee1-0000-1000-8000-00805f9b34fb".to_string(),
             bytes_len: packets.iter().map(Vec::len).sum(),
         },

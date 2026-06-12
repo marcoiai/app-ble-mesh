@@ -41,7 +41,7 @@ object BleMeshPeripheral {
     private val notifying = mutableSetOf<String>()
 
     @JvmStatic external fun nativeRegister()
-    @JvmStatic external fun nativeOnFrame(data: ByteArray)
+    @JvmStatic external fun nativeOnFrame(deviceAddress: String, data: ByteArray)
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -162,7 +162,13 @@ object BleMeshPeripheral {
 
     @JvmStatic
     fun send(data: ByteArray) {
+        sendExcept(data, null)
+    }
+
+    @JvmStatic
+    fun sendExcept(data: ByteArray, excludedAddress: String?) {
         val devices = synchronized(subscribed) { subscribed.toList() }
+            .filter { device -> excludedAddress == null || device.address != excludedAddress }
         if (devices.isEmpty()) {
             Log.w(TAG, "send: no subscribed centrals for ${data.size} byte(s)")
             return
@@ -292,7 +298,7 @@ object BleMeshPeripheral {
             }
             if (characteristic.uuid == CHAR_UUID && value.isNotEmpty()) {
                 try {
-                    nativeOnFrame(value)
+                    nativeOnFrame(device.address, value)
                 } catch (t: Throwable) {
                     Log.e(TAG, "nativeOnFrame failed", t)
                 }

@@ -2,7 +2,7 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use jni::objects::{GlobalRef, JClass, JObject, JValue};
+use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::sys::jbyteArray;
 use jni::{JNIEnv, JavaVM};
 use tauri::{AppHandle, Emitter};
@@ -38,8 +38,13 @@ pub extern "system" fn Java_com_auser_app_1ble_1mesh_BleMeshPeripheral_nativeReg
 pub extern "system" fn Java_com_auser_app_1ble_1mesh_BleMeshPeripheral_nativeOnFrame(
     env: JNIEnv,
     _class: JClass,
+    device_address: JString,
     data: jbyteArray,
 ) {
+    let device_address = env
+        .get_string(device_address)
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "android-central".to_string());
     let Ok(bytes) = env.convert_byte_array(data) else {
         return;
     };
@@ -49,7 +54,12 @@ pub extern "system" fn Java_com_auser_app_1ble_1mesh_BleMeshPeripheral_nativeOnF
             let app_clone = app.clone();
             let protocol_bytes = bytes.clone();
             tauri::async_runtime::spawn(async move {
-                crate::ble::handle_android_peripheral_bytes(app_clone, protocol_bytes).await;
+                crate::ble::handle_android_peripheral_bytes(
+                    app_clone,
+                    protocol_bytes,
+                    Some(device_address),
+                )
+                .await;
             });
             let _ = app.emit(
                 "ble-notification",
@@ -75,6 +85,10 @@ pub fn bluetooth_enabled() -> Result<bool, String> {
 }
 
 pub fn send(data: Vec<u8>) -> Result<(), String> {
+    send_except(data, None)
+}
+
+pub fn send_except(data: Vec<u8>, excluded_address: Option<&str>) -> Result<(), String> {
     let jvm = JVM.get().ok_or("ble-android: not registered")?;
     let env = jvm
         .attach_current_thread()
@@ -85,8 +99,20 @@ pub fn send(data: Vec<u8>) -> Result<(), String> {
         .byte_array_from_slice(&data)
         .map_err(|error| error.to_string())?;
     let arr = JObject::from(arr);
-    env.call_static_method(cls, "send", "([B)V", &[JValue::Object(arr)])
+    if let Some(address) = excluded_address {
+        let address = env.new_string(address).map_err(|error| error.to_string())?;
+        let address = JObject::from(address);
+        env.call_static_method(
+            cls,
+            "sendExcept",
+            "([BLjava/lang/String;)V",
+            &[JValue::Object(arr), JValue::Object(address)],
+        )
         .map_err(|error| error.to_string())?;
+    } else {
+        env.call_static_method(cls, "send", "([B)V", &[JValue::Object(arr)])
+            .map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 
