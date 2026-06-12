@@ -68,10 +68,12 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
   };
 
   const addMessage = (msg: ChatMessage) => {
+    const visibleText = messageText(msg);
+    const normalized = { ...msg, text: visibleText };
     setMessages((prev) => {
-      const exists = prev.some((item) => item.from === msg.from && item.ts === msg.ts && item.text === msg.text);
+      const exists = prev.some((item) => item.from === normalized.from && item.ts === normalized.ts && item.text === normalized.text);
       if (exists) return prev;
-      return [...prev.slice(-7), msg];
+      return [...prev.slice(-7), normalized];
     });
   };
 
@@ -295,7 +297,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
             messages.map((msg, index) => (
               <div key={`${msg.ts}-${index}`} style={messageLine(msg.from === runtimeRef.current?.node.id)}>
                 <span style={muted}>{msg.from === runtimeRef.current?.node.id ? "You" : msg.label}</span>
-                <span>{msg.text}</span>
+                <span style={messageBody}>{msg.text}</span>
               </div>
             ))
           )}
@@ -336,6 +338,12 @@ function pingLabel(statusValue: "idle" | "sent" | "ok" | "fail", rtt: number | n
   if (statusValue === "sent") return "Sent";
   if (statusValue === "fail") return "Failed";
   return "Ready";
+}
+
+function messageText(msg: ChatMessage): string {
+  const text = String(msg.text ?? "").trim();
+  if (text) return text;
+  return "(empty message)";
 }
 
 const panel: React.CSSProperties = {
@@ -465,7 +473,7 @@ const line: React.CSSProperties = {
 
 const messageLine = (own: boolean): React.CSSProperties => ({
   display: "grid",
-  gap: 2,
+  gap: 4,
   marginTop: 7,
   fontSize: 12,
   padding: "7px 8px",
@@ -473,6 +481,13 @@ const messageLine = (own: boolean): React.CSSProperties => ({
   background: own ? "#eef7ff" : "#f4f7fa",
   border: `1px solid ${own ? "#bddcff" : "#e2e8f0"}`,
 });
+
+const messageBody: React.CSSProperties = {
+  color: "#0f172a",
+  fontSize: 13,
+  lineHeight: 1.35,
+  overflowWrap: "anywhere",
+};
 
 const monoLine: React.CSSProperties = {
   fontFamily: "monospace",
