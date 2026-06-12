@@ -995,6 +995,7 @@ function App() {
       <BleCoreMeshDemo
         runtimePlatform={runtimePlatform}
         connectedId={activeConnectedId}
+        peripheralLinkCount={peripheralConnectedIds.length}
         writeUuid={writeUuid}
         macAdvertise={macAdvertise}
       />

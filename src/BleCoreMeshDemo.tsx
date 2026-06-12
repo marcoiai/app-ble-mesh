@@ -12,6 +12,7 @@ import {
 interface BleCoreMeshDemoProps {
   runtimePlatform: string;
   connectedId: string | null;
+  peripheralLinkCount: number;
   writeUuid: string;
   macAdvertise: boolean;
 }
@@ -43,7 +44,7 @@ const secret = "levelup-offgrid";
 const OPCODE_CORE_FRAME = 16;
 type PingToast = { text: string; tone: "wait" | "ok" | "bad" };
 
-export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAdvertise }: BleCoreMeshDemoProps) {
+export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCount, writeUuid, macAdvertise }: BleCoreMeshDemoProps) {
   const runtimeRef = useRef<Runtime | null>(null);
   const lastVisualHelloId = useRef<string | null>(null);
   const lastPrivateFrameAt = useRef(0);
@@ -65,7 +66,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
   const isAndroid = runtimePlatform === "android";
   const isMacPeripheral = runtimePlatform === "macos" && macAdvertise;
   const isPeripheral = isAndroid || isMacPeripheral;
-  const canStart = isPeripheral || Boolean(connectedId && writeUuid);
+  const canStart = isAndroid ? peripheralLinkCount > 0 : isPeripheral || Boolean(connectedId && writeUuid);
 
   const log = (line: string) => {
     setLogs((prev) => [...prev.slice(-7), `${new Date().toLocaleTimeString()} ${line}`]);
@@ -175,7 +176,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
       clearInterval(timer);
       void stop();
     };
-  }, [runtimePlatform, connectedId, writeUuid, macAdvertise]);
+  }, [runtimePlatform, connectedId, peripheralLinkCount, writeUuid, macAdvertise]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
