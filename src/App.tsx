@@ -157,6 +157,20 @@ function App() {
   const supportsCentralMesh = runtimePlatform === "macos" || runtimePlatform === "android";
   const canSendMesh =
     runtimePlatform === "android" || (activeConnectedId != null && writeUuid.length > 0);
+  const visibleDevices = [
+    ...devices,
+    ...connectedIds
+      .filter((id) => !devices.some((device) => device.id === id))
+      .map((id) => ({
+        id,
+        name: bridgeConnectedId.current === id ? "Connected bridge" : "Connected BLE link",
+        rssi: null,
+        connected: true,
+        services: [FEED_UUID],
+        service_data_keys: [],
+        manufacturer_data_keys: [],
+      })),
+  ];
 
   const addLog = (msg: string) =>
     setLogs((prev) => [...prev, `${new Date().toLocaleTimeString()}  ${msg}`]);
@@ -690,14 +704,14 @@ function App() {
               checked={feedOnly}
               onChange={(e) => setFeedOnly(e.target.checked)}
             />{" "}
-            Show only 0xFEED (levelup) — {devices.filter(advertisesFeed).length} found
+            Show only 0xFEED (levelup) — {visibleDevices.filter(advertisesFeed).length} found
           </label>
 
           <div style={{ marginTop: 12 }}>
-            {devices.length === 0 && (
+            {visibleDevices.length === 0 && (
               <p style={{ color: "#999" }}>No devices yet. Run a scan.</p>
             )}
-            {devices
+            {visibleDevices
               .filter((d) => !feedOnly || advertisesFeed(d))
               .map((d) => {
               const isConnected = connectedIds.includes(d.id);
