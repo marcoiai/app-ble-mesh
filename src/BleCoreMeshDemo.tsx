@@ -53,6 +53,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
   const [rtt, setRtt] = useState<number | null>(null);
   const [lastHello, setLastHello] = useState<string | null>(null);
   const [lastPingStatus, setLastPingStatus] = useState<"idle" | "sent" | "ok" | "fail">("idle");
+  const [pingNotice, setPingNotice] = useState<string | null>(null);
   const [visualPeerCount, setVisualPeerCount] = useState(0);
   const [busy, setBusy] = useState(false);
 
@@ -63,6 +64,14 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
 
   const log = (line: string) => {
     setLogs((prev) => [...prev.slice(-7), `${new Date().toLocaleTimeString()} ${line}`]);
+  };
+
+  const addMessage = (msg: ChatMessage) => {
+    setMessages((prev) => {
+      const exists = prev.some((item) => item.from === msg.from && item.ts === msg.ts && item.text === msg.text);
+      if (exists) return prev;
+      return [...prev.slice(-7), msg];
+    });
   };
 
   const refreshPeers = () => {
@@ -111,7 +120,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
 
     const chat = node.use(chatService());
     const unsubs: Array<() => void> = [
-      chat.on(room, (msg) => setMessages((prev) => [...prev.slice(-7), msg])),
+      chat.on(room, addMessage),
       node.events.on("peer:join", (peer) => {
         setLastHello(`${peer.label} ${peer.direct ? "direct" : `${peer.hops} hop`}`);
         setVisualPeerCount((count) => Math.max(count, 1));
@@ -133,6 +142,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
     await node.start();
     setRunning(true);
     setLastPingStatus("idle");
+    setPingNotice(null);
     setLastHello(null);
     setVisualPeerCount(0);
     log(isPeripheral ? "BLE core transport advertising/listening" : "BLE core transport linked to connected device");
@@ -181,6 +191,13 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
     const line = text.trim();
     const rt = runtimeRef.current;
     if (!rt || !line) return;
+    addMessage({
+      room,
+      from: rt.node.id,
+      label: "You",
+      text: line,
+      ts: Date.now(),
+    });
     rt.chat.say(room, line);
     log(`sent encrypted chat frame (${line.length} chars)`);
   };
@@ -192,13 +209,16 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
     setBusy(true);
     setRtt(null);
     setLastPingStatus("sent");
+    setPingNotice("Sending ping...");
     try {
       const ms = await rt.node.ping(peer.id, 3500);
       setRtt(ms);
       setLastPingStatus("ok");
+      setPingNotice(`Ping worked (${ms}ms)`);
       log(`ping ${peer.label}: ${ms}ms`);
     } catch (err) {
       setLastPingStatus("fail");
+      setPingNotice("Ping timed out");
       log(`ping failed: ${String(err)}`);
     } finally {
       setBusy(false);
@@ -235,7 +255,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
         <StatusTile label="Status" value={connectionState} tone={running ? "ok" : "wait"} />
         <StatusTile label="Nearby" value={String(nearbyCount)} tone={nearbyCount > 0 ? "ok" : "wait"} />
         <StatusTile label="Last signal" value={lastHello ?? "Waiting"} tone={lastHello ? "ok" : "wait"} />
-        <StatusTile label="Ping" value={pingLabel(lastPingStatus, rtt)} tone={lastPingStatus === "ok" ? "ok" : lastPingStatus === "fail" ? "bad" : "wait"} />
+        <StatusTile label="Ping" value={pingLabel(lastPingStatus, rtt)} tone={lastPingStatus === "ok" ? "ok" : lastPingStatus === "fail" ? "bad" : "wait"} active={lastPingStatus !== "idle"} />
       </div>
 
       <div style={row}>
@@ -245,6 +265,11 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
         <button onClick={() => void start()} disabled={!canStart} style={button("#5f6368")}>
           Restart
         </button>
+        {pingNotice && (
+          <span style={pingBadge(lastPingStatus)}>
+            {pingNotice}
+          </span>
+        )}
       </div>
 
       <div style={row}>
@@ -269,13 +294,13 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
           )}
         </div>
         <div style={box}>
-          <strong>Received chat</strong>
+          <strong>Messages</strong>
           {messages.length === 0 ? (
-            <p style={hint}>No chat frames yet.</p>
+            <p style={hint}>No messages yet.</p>
           ) : (
             messages.map((msg, index) => (
-              <div key={`${msg.ts}-${index}`} style={stackLine}>
-                <span style={muted}>{msg.label}</span>
+              <div key={`${msg.ts}-${index}`} style={messageLine(msg.from === runtimeRef.current?.node.id)}>
+                <span style={muted}>{msg.from === runtimeRef.current?.node.id ? "You" : msg.label}</span>
                 <span>{msg.text}</span>
               </div>
             ))
@@ -303,9 +328,9 @@ function shortNode(id: string | undefined): string {
   return id.length > 8 ? `${id.slice(0, 8)}...` : id;
 }
 
-function StatusTile({ label, value, tone }: { label: string; value: string; tone: "ok" | "wait" | "bad" }) {
+function StatusTile({ label, value, tone, active = false }: { label: string; value: string; tone: "ok" | "wait" | "bad"; active?: boolean }) {
   return (
-    <div style={tile(tone)}>
+    <div style={tile(tone, active)}>
       <span style={tileLabel}>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -369,11 +394,12 @@ const statusGrid: React.CSSProperties = {
   marginTop: 14,
 };
 
-const tile = (tone: "ok" | "wait" | "bad"): React.CSSProperties => ({
+const tile = (tone: "ok" | "wait" | "bad", active = false): React.CSSProperties => ({
   border: `1px solid ${tone === "ok" ? "#9fd3b5" : tone === "bad" ? "#efb5b5" : "#d8dde5"}`,
   borderRadius: 6,
   padding: "9px 10px",
   background: tone === "ok" ? "#f0fbf5" : tone === "bad" ? "#fff5f5" : "#f8fafc",
+  boxShadow: active ? `0 0 0 3px ${tone === "bad" ? "rgba(217, 83, 79, 0.16)" : "rgba(25, 135, 84, 0.16)"}` : "none",
   minHeight: 54,
 });
 
@@ -400,6 +426,15 @@ const bigButton = (statusValue: "idle" | "sent" | "ok" | "fail"): React.CSSPrope
   ...button(statusValue === "ok" ? "#198754" : statusValue === "fail" ? "#d9534f" : "#0b6bcb"),
   fontSize: 15,
   padding: "11px 18px",
+});
+
+const pingBadge = (statusValue: "idle" | "sent" | "ok" | "fail"): React.CSSProperties => ({
+  borderRadius: 999,
+  padding: "7px 10px",
+  background: statusValue === "ok" ? "#d1e7dd" : statusValue === "fail" ? "#f8d7da" : "#e7f1ff",
+  color: statusValue === "ok" ? "#0f5132" : statusValue === "fail" ? "#842029" : "#084298",
+  fontSize: 12,
+  fontWeight: 700,
 });
 
 const input: React.CSSProperties = {
@@ -434,12 +469,16 @@ const line: React.CSSProperties = {
   fontSize: 12,
 };
 
-const stackLine: React.CSSProperties = {
+const messageLine = (own: boolean): React.CSSProperties => ({
   display: "grid",
   gap: 2,
   marginTop: 7,
   fontSize: 12,
-};
+  padding: "7px 8px",
+  borderRadius: 6,
+  background: own ? "#eef7ff" : "#f4f7fa",
+  border: `1px solid ${own ? "#bddcff" : "#e2e8f0"}`,
+});
 
 const monoLine: React.CSSProperties = {
   fontFamily: "monospace",
