@@ -168,6 +168,18 @@ object BleMeshPeripheral {
     }
 
     @JvmStatic
+    fun sendTo(data: ByteArray, address: String) {
+        val device = synchronized(subscribed) {
+            subscribed.firstOrNull { it.address == address }
+        }
+        if (device == null) {
+            Log.w(TAG, "sendTo: $address is not subscribed")
+            return
+        }
+        queueNotify(device, data)
+    }
+
+    @JvmStatic
     fun sendExcept(data: ByteArray, excludedAddress: String?) {
         val devices = synchronized(subscribed) { subscribed.toList() }
             .filter { device -> excludedAddress == null || device.address != excludedAddress }
@@ -175,17 +187,26 @@ object BleMeshPeripheral {
             Log.w(TAG, "send: no subscribed centrals for ${data.size} byte(s)")
             return
         }
+        for (device in devices) {
+            queueNotify(device, data)
+        }
+    }
+
+    @JvmStatic
+    fun subscribedAddresses(): Array<String> {
+        return synchronized(subscribed) { subscribed.map { it.address }.toTypedArray() }
+    }
+
+    private fun queueNotify(device: BluetoothDevice, data: ByteArray) {
         synchronized(notifyQueues) {
-            for (device in devices) {
-                val key = device.address
-                val queue = notifyQueues.getOrPut(key) { ArrayDeque() }
-                while (queue.size >= MAX_NOTIFY_QUEUE_PER_DEVICE) {
-                    queue.pollFirst()
-                }
-                queue.add(data.copyOf())
-                Log.v(TAG, "send: queued ${data.size} byte(s) for $key, queue=${queue.size}")
-                pumpNotifyLocked(device)
+            val key = device.address
+            val queue = notifyQueues.getOrPut(key) { ArrayDeque() }
+            while (queue.size >= MAX_NOTIFY_QUEUE_PER_DEVICE) {
+                queue.pollFirst()
             }
+            queue.add(data.copyOf())
+            Log.v(TAG, "send: queued ${data.size} byte(s) for $key, queue=${queue.size}")
+            pumpNotifyLocked(device)
         }
     }
 

@@ -172,10 +172,13 @@ async fn main() {
             ble::mesh_ble_send,
             ble::mesh_ble_payload,
             ble::send_android_peripheral_ping,
+            ble::send_android_peripheral_ping_to,
             ble::send_android_peripheral_core_frame,
+            ble::send_peripheral_protocol_text,
             ble::protocol_node_info,
             ble::disconnect_device,
             ble::connected_device_ids,
+            ble::peripheral_connected_device_ids,
             // Captura legada de advertisements (somente RX)
             ble::start_hardware_mesh_scan,
             macos_peripheral_start,

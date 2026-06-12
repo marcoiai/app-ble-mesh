@@ -196,6 +196,15 @@ pub struct SendProtocolPingRequest {
     pub ttl: Option<u8>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendPeripheralProtocolTextRequest {
+    pub target_id: Option<String>,
+    pub text: String,
+    pub dst_addr: Option<u16>,
+    pub ttl: Option<u8>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendCoreFrameRequest {
@@ -573,14 +582,13 @@ pub async fn send_protocol_ping_to_device(
     state: tauri::State<'_, BleState>,
 ) -> Result<String, String> {
     let sequence_number = next_sequence(&state.sequence);
-    let sent_ms = now_millis();
     let frame = ProtocolFrame {
         src_addr: state.node_addr,
         dst_addr: request.dst_addr.unwrap_or(protocol::BROADCAST_ADDR),
         ttl: request.ttl.unwrap_or(3),
         sequence_number,
         opcode: protocol::OPCODE_PING,
-        payload: format!("ping:{sequence_number}:{sent_ms}").into_bytes(),
+        payload: Vec::new(),
         checksum: 0,
     };
     let packets = protocol::encode_for_ble_transport(&frame);
@@ -634,14 +642,13 @@ pub async fn send_android_peripheral_ping(
     #[cfg(target_os = "android")]
     {
         let sequence_number = next_sequence(&state.sequence);
-        let sent_ms = now_millis();
         let frame = ProtocolFrame {
             src_addr: state.node_addr,
             dst_addr: protocol::BROADCAST_ADDR,
             ttl: 4,
             sequence_number,
             opcode: protocol::OPCODE_PING,
-            payload: format!("ping:{sequence_number}:{sent_ms}").into_bytes(),
+            payload: Vec::new(),
             checksum: 0,
         };
         let packets = protocol::encode_for_ble_transport(&frame);
@@ -665,6 +672,113 @@ pub async fn send_android_peripheral_ping(
         let _ = state;
         Err("Android peripheral ping is only available on Android".to_string())
     }
+}
+
+#[tauri::command]
+pub async fn send_android_peripheral_ping_to(
+    app: AppHandle,
+    target_id: Option<String>,
+    state: tauri::State<'_, BleState>,
+) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        let sequence_number = next_sequence(&state.sequence);
+        let frame = ProtocolFrame {
+            src_addr: state.node_addr,
+            dst_addr: protocol::BROADCAST_ADDR,
+            ttl: 4,
+            sequence_number,
+            opcode: protocol::OPCODE_PING,
+            payload: Vec::new(),
+            checksum: 0,
+        };
+        let packets = protocol::encode_for_ble_transport(&frame);
+        for packet in &packets {
+            if let Some(target_id) = target_id.as_deref() {
+                let address = target_id
+                    .strip_prefix("android-central:")
+                    .unwrap_or(target_id);
+                crate::ble_android::send_to(packet.clone(), address)?;
+            } else {
+                crate::ble_android::send(packet.clone())?;
+            }
+        }
+
+        emit_protocol_frame(&app, frame);
+        emit_protocol_transport(&app, sequence_number, &packets);
+        return Ok(format!(
+            "Sent Android mesh ping seq={} packets={} bytes={}",
+            sequence_number,
+            packets.len(),
+            packets.iter().map(Vec::len).sum::<usize>()
+        ));
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        let _ = target_id;
+        let _ = state;
+        Err("Android peripheral ping is only available on Android".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn send_peripheral_protocol_text(
+    app: AppHandle,
+    request: SendPeripheralProtocolTextRequest,
+    state: tauri::State<'_, BleState>,
+) -> Result<String, String> {
+    let sequence_number = next_sequence(&state.sequence);
+    let frame = ProtocolFrame {
+        src_addr: state.node_addr,
+        dst_addr: request.dst_addr.unwrap_or(protocol::BROADCAST_ADDR),
+        ttl: request.ttl.unwrap_or(4),
+        sequence_number,
+        opcode: protocol::OPCODE_TEXT,
+        payload: request.text.into_bytes(),
+        checksum: 0,
+    };
+    let packets = protocol::encode_for_ble_transport(&frame);
+
+    #[cfg(target_os = "android")]
+    {
+        for packet in &packets {
+            if let Some(target_id) = request.target_id.as_deref() {
+                let address = target_id
+                    .strip_prefix("android-central:")
+                    .unwrap_or(target_id);
+                crate::ble_android::send_to(packet.clone(), address)?;
+            } else {
+                crate::ble_android::send(packet.clone())?;
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = request.target_id;
+        for packet in &packets {
+            crate::ble_macos::send(packet.clone())?;
+        }
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "macos")))]
+    {
+        let _ = request;
+        let _ = app;
+        let _ = packets;
+        return Err("BLE peripheral protocol send is not available on this platform".to_string());
+    }
+
+    emit_protocol_frame(&app, frame);
+    emit_protocol_transport(&app, sequence_number, &packets);
+    Ok(format!(
+        "Sent peripheral protocol frame seq={} packets={} bytes={}",
+        sequence_number,
+        packets.len(),
+        packets.iter().map(Vec::len).sum::<usize>()
+    ))
 }
 
 #[tauri::command]
@@ -859,6 +973,23 @@ pub async fn connected_device_ids(
     Ok(active)
 }
 
+#[tauri::command]
+pub async fn peripheral_connected_device_ids() -> Result<Vec<String>, String> {
+    #[cfg(target_os = "android")]
+    {
+        return crate::ble_android::subscribed_addresses().map(|ids| {
+            ids.into_iter()
+                .map(|id| format!("android-central:{id}"))
+                .collect()
+        });
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(Vec::new())
+    }
+}
+
 pub fn emit_protocol_frame(app: &AppHandle, frame: ProtocolFrame) {
     let _ = app.emit("protocol-frame", protocol::to_event(frame));
 }
@@ -931,7 +1062,7 @@ async fn process_completed_frame(
     node_addr: u16,
     cache: Arc<Mutex<NetworkCache>>,
     connected: Arc<Mutex<HashMap<String, Peripheral>>>,
-    sequence: Arc<Mutex<u32>>,
+    _sequence: Arc<Mutex<u32>>,
     incoming_device_id: Option<String>,
     char_uuid: String,
 ) {
@@ -950,9 +1081,9 @@ async fn process_completed_frame(
                 src_addr: node_addr,
                 dst_addr: original_frame.src_addr,
                 ttl: 3,
-                sequence_number: next_sequence(&sequence),
+                sequence_number: original_frame.sequence_number,
                 opcode: protocol::OPCODE_PONG,
-                payload: original_frame.payload.clone(),
+                payload: Vec::new(),
                 checksum: 0,
             };
             let packets = protocol::encode_for_ble_transport(&pong);
@@ -1012,13 +1143,6 @@ fn next_sequence(sequence: &Arc<Mutex<u32>>) -> u32 {
     *seq
 }
 
-fn now_millis() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0)
-}
-
 fn emit_protocol_transport(app: &AppHandle, sequence_number: u32, packets: &[Vec<u8>]) {
     let _ = app.emit(
         "protocol-transport",
@@ -1068,9 +1192,9 @@ pub async fn handle_android_peripheral_bytes(
                 src_addr: state.node_addr,
                 dst_addr: frame.src_addr,
                 ttl: 3,
-                sequence_number: next_sequence(&state.sequence),
+                sequence_number: frame.sequence_number,
                 opcode: protocol::OPCODE_PONG,
-                payload: frame.payload.clone(),
+                payload: Vec::new(),
                 checksum: 0,
             };
             let packets = protocol::encode_for_ble_transport(&pong);
@@ -1142,9 +1266,9 @@ pub async fn handle_macos_peripheral_bytes(app: AppHandle, bytes: Vec<u8>) {
                 src_addr: state.node_addr,
                 dst_addr: frame.src_addr,
                 ttl: 3,
-                sequence_number: next_sequence(&state.sequence),
+                sequence_number: frame.sequence_number,
                 opcode: protocol::OPCODE_PONG,
-                payload: frame.payload.clone(),
+                payload: Vec::new(),
                 checksum: 0,
             };
             let packets = protocol::encode_for_ble_transport(&pong);

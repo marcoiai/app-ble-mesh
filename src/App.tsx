@@ -112,6 +112,10 @@ function shortUuid(uuid: string): string {
   return m ? `0x${m[1].toUpperCase()}` : uuid;
 }
 
+function deviceLabel(devices: DeviceInfo[], id: string): string {
+  return devices.find((device) => device.id === id)?.name || `Connected BLE ${id.slice(0, 8)}`;
+}
+
 function looksLikeBleRadioError(error: unknown): boolean {
   const text = String(error).toLowerCase();
   return (
@@ -127,6 +131,8 @@ function App() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [connectedIds, setConnectedIds] = useState<string[]>([]);
+  const [peripheralConnectedIds, setPeripheralConnectedIds] = useState<string[]>([]);
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [writeUuid, setWriteUuid] = useState("");
@@ -154,9 +160,27 @@ function App() {
   const lastRadioEnabled = useRef<boolean | null>(null);
   const bridgeConnectedId = useRef<string | null>(null);
   const activeConnectedId = connectedIds[0] ?? null;
+  const selectedCentralId =
+    selectedLinkId && connectedIds.includes(selectedLinkId) ? selectedLinkId : activeConnectedId;
+  const selectedPeripheralId =
+    selectedLinkId && peripheralConnectedIds.includes(selectedLinkId)
+      ? selectedLinkId
+      : peripheralConnectedIds[0] ?? null;
+  const selectedOperationalLink =
+    runtimePlatform === "android" ? selectedPeripheralId : selectedCentralId;
   const supportsCentralMesh = runtimePlatform === "macos" || runtimePlatform === "android";
   const canSendMesh =
-    runtimePlatform === "android" || (activeConnectedId != null && writeUuid.length > 0);
+    runtimePlatform === "android"
+      ? selectedPeripheralId != null
+      : selectedCentralId != null && writeUuid.length > 0;
+  const connectedLinks = [
+    ...connectedIds.map((id) => ({ id, label: deviceLabel(devices, id), role: "central" })),
+    ...peripheralConnectedIds.map((id) => ({
+      id,
+      label: `Subscribed Mac ${id.replace("android-central:", "").slice(-5)}`,
+      role: "peripheral",
+    })),
+  ];
   const visibleDevices = [
     ...devices,
     ...connectedIds
@@ -206,6 +230,7 @@ function App() {
         .then((ids) => {
           if (ids.length > 0) {
             setConnectedIds(ids);
+            setSelectedLinkId((current) => current ?? ids[0]);
             setWriteUuid(FEED_CHAR_UUID);
             setAutoMeshStatus(`Restored ${ids.length} active BLE link(s) after reload.`);
             addLog(`🔁 Restored active BLE link: ${ids.join(", ")}`);
@@ -225,9 +250,10 @@ function App() {
         const f = event.payload;
         if (f.opcode === OPCODE_PONG) {
           const parts = f.payload_text.split(":");
-          const pingSeq = Number(parts[1]);
-          const sentAt = Number(parts[2]);
-          const started = pendingPings.current.get(pingSeq) ?? sentAt;
+          const payloadSeq = Number(parts[1]);
+          const payloadSentAt = Number(parts[2]);
+          const pingSeq = Number.isFinite(payloadSeq) ? payloadSeq : f.sequence_number;
+          const started = pendingPings.current.get(pingSeq) ?? payloadSentAt;
           pendingPings.current.delete(pingSeq);
           const rtt = Date.now() - started;
           setMeshStats((prev) => ({
@@ -336,12 +362,43 @@ function App() {
     };
   }, [runtimePlatform]);
 
+  useEffect(() => {
+    if (runtimePlatform !== "android") {
+      setPeripheralConnectedIds([]);
+      return;
+    }
+
+    let cancelled = false;
+    const refreshLinks = async () => {
+      try {
+        const ids = await invoke<string[]>("peripheral_connected_device_ids");
+        if (cancelled) return;
+        setPeripheralConnectedIds(ids);
+        if (ids.length > 0) {
+          setSelectedLinkId((current) => (current && ids.includes(current) ? current : ids[0]));
+        }
+      } catch {
+        if (!cancelled) setPeripheralConnectedIds([]);
+      }
+    };
+
+    refreshLinks();
+    const timer = window.setInterval(refreshLinks, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [runtimePlatform]);
+
   const handleScan = async () => {
     setIsScanning(true);
     addLog("🔍 Scanning for nearby BLE devices (~4s)...");
     try {
       const found = await invoke<DeviceInfo[]>("scan_devices");
       setDevices(found);
+      invoke<string[]>("peripheral_connected_device_ids")
+        .then((ids) => setPeripheralConnectedIds(ids))
+        .catch(() => {});
       setBleRadioEnabled((prev) => (runtimePlatform === "macos" ? true : prev));
       addLog(`✅ Found ${found.length} device(s).`);
     } catch (e) {
@@ -423,6 +480,7 @@ function App() {
             if (cancelled) return;
             setServices(svcs);
             setConnectedIds((prev) => (prev.includes(candidate.id) ? prev : [...prev, candidate.id]));
+            setSelectedLinkId(candidate.id);
             bridgeConnectedId.current = isBridgeCandidate(candidate) ? candidate.id : null;
             const allCharacteristics = svcs.flatMap((s) => s.characteristics);
             const feedWritable = allCharacteristics.find(
@@ -503,6 +561,7 @@ function App() {
       const svcs = await invoke<ServiceInfo[]>("connect_device", { id: device.id });
       setServices(svcs);
       setConnectedIds((prev) => (prev.includes(device.id) ? prev : [...prev, device.id]));
+      setSelectedLinkId(device.id);
       bridgeConnectedId.current = isBridgeCandidate(device) ? device.id : null;
       const charCount = svcs.reduce((n, s) => n + s.characteristics.length, 0);
       addLog(`✅ Connected. ${svcs.length} service(s), ${charCount} characteristic(s).`);
@@ -529,19 +588,20 @@ function App() {
       addLog(`❌ Disconnect error: ${e}`);
     }
     setConnectedIds((prev) => prev.filter((id) => id !== deviceId));
+    setSelectedLinkId((current) => (current === deviceId ? null : current));
     if (bridgeConnectedId.current === deviceId) bridgeConnectedId.current = null;
     if (activeConnectedId === deviceId) setServices([]);
   };
 
   const handleWrite = async () => {
-    if (!activeConnectedId || !writeUuid) {
+    if (!selectedCentralId || !writeUuid) {
       addLog("⚠️ Pick a writable characteristic first.");
       return;
     }
     const bytes = Array.from(new TextEncoder().encode(writeText));
     try {
       const res = await invoke<string>("write_characteristic", {
-        deviceId: activeConnectedId,
+        deviceId: selectedCentralId,
         charUuid: writeUuid,
         data: bytes,
       });
@@ -552,14 +612,34 @@ function App() {
   };
 
   const handleProtocolSend = async () => {
-    if (!activeConnectedId || !writeUuid) {
+    if (runtimePlatform === "android") {
+      if (!selectedPeripheralId) {
+        addLog("⚠️ Pick a connected subscribed Mac first.");
+        return;
+      }
+      try {
+        const res = await invoke<string>("send_peripheral_protocol_text", {
+          request: {
+            targetId: selectedPeripheralId,
+            dstAddr: 65535,
+            ttl: 4,
+            text: writeText,
+          },
+        });
+        addLog(`📡 ${res}  "${writeText}"`);
+      } catch (e) {
+        addLog(`❌ Protocol send failed: ${e}`);
+      }
+      return;
+    }
+    if (!selectedCentralId || !writeUuid) {
       addLog("⚠️ Pick a writable characteristic first.");
       return;
     }
     try {
       const res = await invoke<string>("send_protocol_text_to_device", {
         request: {
-          deviceId: activeConnectedId,
+          deviceId: selectedCentralId,
           charUuid: writeUuid,
           dstAddr: 65535,
           ttl: 3,
@@ -574,8 +654,14 @@ function App() {
 
   const handleMeshPing = async () => {
     if (runtimePlatform === "android") {
+      if (!selectedPeripheralId) {
+        addLog("⚠️ Pick a connected subscribed Mac first.");
+        return;
+      }
       try {
-        const res = await invoke<string>("send_android_peripheral_ping");
+        const res = await invoke<string>("send_android_peripheral_ping_to", {
+          targetId: selectedPeripheralId,
+        });
         const seq = Number(res.match(/seq=(\d+)/)?.[1]);
         if (Number.isFinite(seq)) {
           pendingPings.current.set(seq, Date.now());
@@ -591,14 +677,14 @@ function App() {
       }
       return;
     }
-    if (!activeConnectedId || !writeUuid) {
+    if (!selectedCentralId || !writeUuid) {
       addLog("⚠️ Pick a writable characteristic first.");
       return;
     }
     try {
       const res = await invoke<string>("send_protocol_ping_to_device", {
         request: {
-          deviceId: activeConnectedId,
+          deviceId: selectedCentralId,
           charUuid: writeUuid,
           dstAddr: 65535,
           ttl: 4,
@@ -647,6 +733,35 @@ function App() {
               </span>
             </label>
           )}
+
+          <section style={{ ...detailsBox, marginTop: 12 }}>
+            <strong style={{ display: "block", color: "#27313f", marginBottom: 8 }}>
+              Connected links ({connectedLinks.length})
+            </strong>
+            {connectedLinks.length === 0 ? (
+              <div style={{ color: "#777", fontSize: 13 }}>No live mesh links yet.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                {connectedLinks.map((link) => {
+                  const selected = selectedOperationalLink === link.id;
+                  return (
+                    <button
+                      key={`${link.role}:${link.id}`}
+                      onClick={() => setSelectedLinkId(link.id)}
+                      style={{
+                        ...miniBtn(selected ? "#111" : "#5f6b7a"),
+                        width: "100%",
+                        textAlign: "left",
+                      }}
+                    >
+                      {selected ? "● " : "○ "}
+                      {link.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
 
           {bleRadioEnabled === false && (
             <div
@@ -773,7 +888,7 @@ function App() {
 
         {/* Coluna direita: serviços + envio de dados */}
         <section style={{ flex: 1 }}>
-          {activeConnectedId ? (
+          {activeConnectedId || selectedPeripheralId ? (
             <>
               <details style={{ ...detailsBox, marginTop: 0 }}>
                 <summary style={summaryStyle}>Advanced GATT tools</summary>
@@ -864,7 +979,7 @@ function App() {
                 cursor: canSendMesh ? "pointer" : "not-allowed",
               }}
             >
-              {runtimePlatform === "android" ? "Ping subscribed Mac" : "Ping mesh"}
+              {runtimePlatform === "android" ? "Ping selected Mac" : "Ping mesh"}
             </button>
             {!canSendMesh && (
               <div style={{ marginTop: 8, color: "#777", fontSize: 12 }}>

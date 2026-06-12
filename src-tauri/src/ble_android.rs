@@ -3,7 +3,7 @@
 use std::sync::{Mutex, OnceLock};
 
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
-use jni::sys::jbyteArray;
+use jni::sys::{jbyteArray, jobjectArray};
 use jni::{JNIEnv, JavaVM};
 use tauri::{AppHandle, Emitter};
 
@@ -88,6 +88,29 @@ pub fn send(data: Vec<u8>) -> Result<(), String> {
     send_except(data, None)
 }
 
+pub fn send_to(data: Vec<u8>, address: &str) -> Result<(), String> {
+    let jvm = JVM.get().ok_or("ble-android: not registered")?;
+    let env = jvm
+        .attach_current_thread()
+        .map_err(|error| error.to_string())?;
+    let class = CLASS.get().ok_or("ble-android: no class")?;
+    let cls = JClass::from(class.as_obj());
+    let arr = env
+        .byte_array_from_slice(&data)
+        .map_err(|error| error.to_string())?;
+    let arr = JObject::from(arr);
+    let address = env.new_string(address).map_err(|error| error.to_string())?;
+    let address = JObject::from(address);
+    env.call_static_method(
+        cls,
+        "sendTo",
+        "([BLjava/lang/String;)V",
+        &[JValue::Object(arr), JValue::Object(address)],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 pub fn send_except(data: Vec<u8>, excluded_address: Option<&str>) -> Result<(), String> {
     let jvm = JVM.get().ok_or("ble-android: not registered")?;
     let env = jvm
@@ -114,6 +137,38 @@ pub fn send_except(data: Vec<u8>, excluded_address: Option<&str>) -> Result<(), 
             .map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+pub fn subscribed_addresses() -> Result<Vec<String>, String> {
+    let jvm = JVM.get().ok_or("ble-android: not registered")?;
+    let env = jvm
+        .attach_current_thread()
+        .map_err(|error| error.to_string())?;
+    let class = CLASS.get().ok_or("ble-android: no class")?;
+    let cls = JClass::from(class.as_obj());
+    let array = env
+        .call_static_method(cls, "subscribedAddresses", "()[Ljava/lang/String;", &[])
+        .map_err(|error| error.to_string())?
+        .l()
+        .map_err(|error| error.to_string())?;
+    let array = array.into_inner() as jobjectArray;
+    let len = env
+        .get_array_length(array)
+        .map_err(|error| error.to_string())?;
+    let mut out = Vec::with_capacity(len as usize);
+    for index in 0..len {
+        let item = env
+            .get_object_array_element(array, index)
+            .map_err(|error| error.to_string())?;
+        let item = JString::from(item);
+        out.push(
+            env.get_string(item)
+                .map_err(|error| error.to_string())?
+                .to_string_lossy()
+                .into_owned(),
+        );
+    }
+    Ok(out)
 }
 
 pub fn stop() {
