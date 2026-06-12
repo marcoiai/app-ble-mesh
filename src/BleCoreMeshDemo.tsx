@@ -59,6 +59,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
   const [pingNotice, setPingNotice] = useState<string | null>(null);
   const [pingToast, setPingToast] = useState<PingToast | null>(null);
   const [visualPeerCount, setVisualPeerCount] = useState(0);
+  const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const isAndroid = runtimePlatform === "android";
@@ -91,7 +92,12 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
   const refreshPeers = () => {
     const rt = runtimeRef.current;
     if (!rt) return;
-    setPeers(rt.node.knownPeers());
+    const nextPeers = rt.node.knownPeers();
+    setPeers(nextPeers);
+    setSelectedPeerId((current) => {
+      if (current && nextPeers.some((peer) => peer.id === current)) return current;
+      return nextPeers[0]?.id ?? null;
+    });
   };
 
   const stop = async () => {
@@ -102,6 +108,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
     await rt.node.stop();
     setRunning(false);
     setPeers([]);
+    setSelectedPeerId(null);
   };
 
   const start = async () => {
@@ -220,7 +227,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
 
   const ping = async () => {
     const rt = runtimeRef.current;
-    const peer = peers[0];
+    const peer = peers.find((item) => item.id === selectedPeerId) ?? peers[0];
     if (!rt || !peer) {
       showPingToast({ text: "No nearby device to ping yet", tone: "bad" }, 2400);
       return;
@@ -258,6 +265,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
       ? "Connected to a nearby device."
       : "Looking for nearby devices.";
   const nearbyCount = Math.max(peers.length, visualPeerCount);
+  const selectedPeer = peers.find((peer) => peer.id === selectedPeerId) ?? peers[0] ?? null;
 
   return (
     <section style={panel}>
@@ -287,8 +295,8 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
       </div>
 
       <div style={row}>
-        <button onClick={ping} disabled={!running || peers.length === 0 || busy} style={bigButton(lastPingStatus)}>
-          {busy ? "Pinging..." : "Send ping"}
+        <button onClick={ping} disabled={!running || !selectedPeer || busy} style={bigButton(lastPingStatus)}>
+          {busy ? "Pinging..." : selectedPeer ? `Ping ${selectedPeer.label}` : "Send ping"}
         </button>
         <button onClick={() => void start()} disabled={!canStart} style={button("#5f6368")}>
           Restart
@@ -314,10 +322,15 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAd
             <p style={hint}>Waiting for a nearby device.</p>
           ) : (
             peers.map((peer) => (
-              <div key={peer.id} style={line}>
+              <button
+                key={peer.id}
+                type="button"
+                onClick={() => setSelectedPeerId(peer.id)}
+                style={peerButton(peer.id === selectedPeerId)}
+              >
                 <span>{peer.label}</span>
                 <span>{peer.direct ? "direct" : `${peer.hops} hop`}</span>
-              </div>
+              </button>
             ))
           )}
         </div>
@@ -525,6 +538,19 @@ const line: React.CSSProperties = {
   marginTop: 7,
   fontSize: 12,
 };
+
+const peerButton = (selected: boolean): React.CSSProperties => ({
+  ...line,
+  width: "100%",
+  border: `1px solid ${selected ? "#8bbcff" : "#e2e8f0"}`,
+  borderRadius: 5,
+  background: selected ? "#e7f1ff" : "#ffffff",
+  color: "#111827",
+  cursor: "pointer",
+  font: "inherit",
+  padding: "7px 8px",
+  textAlign: "left",
+});
 
 const messageLine = (own: boolean): React.CSSProperties => ({
   display: "grid",
