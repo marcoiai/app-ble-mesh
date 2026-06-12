@@ -391,14 +391,6 @@ function App() {
         )}
       </p>
 
-      <ProtocolCoreDemo />
-      <LevelPackBench />
-      <BleCoreMeshDemo
-        runtimePlatform={runtimePlatform}
-        connectedId={connectedId}
-        writeUuid={writeUuid}
-      />
-
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
         {/* Coluna esquerda: descoberta de dispositivos */}
         <section style={{ flex: 1 }}>
@@ -505,58 +497,59 @@ function App() {
         <section style={{ flex: 1 }}>
           {connectedId ? (
             <>
-              <h3 style={{ marginTop: 0 }}>Services & Characteristics</h3>
-              <div style={{ maxHeight: 260, overflowY: "auto" }}>
-                {services.map((s) => (
-                  <div key={s.uuid} style={{ marginBottom: 10 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>
-                      Service {shortUuid(s.uuid)}
-                    </div>
-                    {s.characteristics.map((c) => (
-                      <div
-                        key={c.uuid}
-                        onClick={() => c.write && setWriteUuid(c.uuid)}
-                        style={{
-                          fontSize: 12,
-                          padding: "3px 8px",
-                          marginLeft: 10,
-                          cursor: c.write ? "pointer" : "default",
-                          background: writeUuid === c.uuid ? "#e6f0ff" : "transparent",
-                          borderRadius: 4,
-                        }}
-                      >
-                        {shortUuid(c.uuid)}{" "}
-                        <span style={{ color: "#888" }}>
-                          {[c.read && "R", c.write && "W", c.notify && "N"]
-                            .filter(Boolean)
-                            .join("/")}
-                        </span>
+              <details style={{ ...detailsBox, marginTop: 0 }}>
+                <summary style={summaryStyle}>Advanced GATT tools</summary>
+                <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 10 }}>
+                  {services.map((s) => (
+                    <div key={s.uuid} style={{ marginBottom: 10 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>
+                        Service {shortUuid(s.uuid)}
                       </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
+                      {s.characteristics.map((c) => (
+                        <div
+                          key={c.uuid}
+                          onClick={() => c.write && setWriteUuid(c.uuid)}
+                          style={{
+                            fontSize: 12,
+                            padding: "3px 8px",
+                            marginLeft: 10,
+                            cursor: c.write ? "pointer" : "default",
+                            background: writeUuid === c.uuid ? "#e6f0ff" : "transparent",
+                            borderRadius: 4,
+                          }}
+                        >
+                          {shortUuid(c.uuid)}{" "}
+                          <span style={{ color: "#888" }}>
+                            {[c.read && "R", c.write && "W", c.notify && "N"]
+                              .filter(Boolean)
+                              .join("/")}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
 
-              <h3>Send data</h3>
-              <input
-                value={writeUuid}
-                onChange={(e) => setWriteUuid(e.target.value)}
-                placeholder="characteristic uuid (W)"
-                style={{ width: "100%", padding: 6, marginBottom: 6, fontSize: 12 }}
-              />
-              <div style={{ display: "flex", gap: 6 }}>
                 <input
-                  value={writeText}
-                  onChange={(e) => setWriteText(e.target.value)}
-                  style={{ flex: 1, padding: 6 }}
+                  value={writeUuid}
+                  onChange={(e) => setWriteUuid(e.target.value)}
+                  placeholder="characteristic uuid (W)"
+                  style={{ width: "100%", padding: 6, marginBottom: 6, fontSize: 12 }}
                 />
-                <button onClick={handleWrite} style={btn("#0275d8")}>
-                  Send raw
-                </button>
-                <button onClick={handleProtocolSend} style={btn("#6f42c1")}>
-                  Send protocol
-                </button>
-              </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    value={writeText}
+                    onChange={(e) => setWriteText(e.target.value)}
+                    style={{ flex: 1, padding: 6 }}
+                  />
+                  <button onClick={handleWrite} style={btn("#0275d8")}>
+                    Send raw
+                  </button>
+                  <button onClick={handleProtocolSend} style={btn("#6f42c1")}>
+                    Send protocol
+                  </button>
+                </div>
+              </details>
 
             </>
           ) : (
@@ -606,27 +599,46 @@ function App() {
         </section>
       </div>
 
+      <BleCoreMeshDemo
+        runtimePlatform={runtimePlatform}
+        connectedId={connectedId}
+        writeUuid={writeUuid}
+      />
+
+      <details style={detailsBox}>
+        <summary style={summaryStyle}>Protocol core demo</summary>
+        <ProtocolCoreDemo />
+      </details>
+
+      <details style={detailsBox}>
+        <summary style={summaryStyle}>LevelPack benchmark</summary>
+        <LevelPackBench />
+      </details>
+
       {/* Log de tráfego */}
-      <h3 style={{ marginBottom: 6 }}>Traffic log</h3>
-      <div
-        ref={logRef}
-        style={{
-          textAlign: "left",
-          background: "#111",
-          color: "#00ff00",
-          padding: 12,
-          borderRadius: 8,
-          height: 220,
-          overflowY: "auto",
-          fontFamily: "monospace",
-          fontSize: 12,
-        }}
-      >
-        {logs.length === 0 && <span style={{ color: "#444" }}>Idle...</span>}
-        {logs.map((l, i) => (
-          <div key={i}>{l}</div>
-        ))}
-      </div>
+      <details style={detailsBox}>
+        <summary style={summaryStyle}>Traffic log ({logs.length})</summary>
+        <div
+          ref={logRef}
+          style={{
+            textAlign: "left",
+            background: "#111",
+            color: "#00ff00",
+            padding: 12,
+            borderRadius: 8,
+            height: 220,
+            overflowY: "auto",
+            fontFamily: "monospace",
+            fontSize: 12,
+            marginTop: 10,
+          }}
+        >
+          {logs.length === 0 && <span style={{ color: "#444" }}>Idle...</span>}
+          {logs.map((l, i) => (
+            <div key={i}>{l}</div>
+          ))}
+        </div>
+      </details>
     </main>
   );
 }
@@ -655,5 +667,19 @@ const card = (active: boolean): React.CSSProperties => ({
   marginBottom: 8,
   background: active ? "#f5f9ff" : "#fafafa",
 });
+
+const detailsBox: React.CSSProperties = {
+  border: "1px solid #d9dde3",
+  borderRadius: 8,
+  padding: 12,
+  marginBottom: 12,
+  background: "#fff",
+};
+
+const summaryStyle: React.CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 700,
+  color: "#27313f",
+};
 
 export default App;
