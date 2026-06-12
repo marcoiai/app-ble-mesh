@@ -257,6 +257,10 @@ function App() {
   };
 
   const handleConnect = async (device: DeviceInfo) => {
+    if (activeConnectedId && activeConnectedId !== device.id) {
+      addLog("⚠️ One BLE link at a time for now. Disconnect the current node before connecting another.");
+      return;
+    }
     if (!advertisesFeed(device)) {
       addLog(`⚠️ Refusing ${device.name}: not advertising 0xFEED.`);
       return;
@@ -449,6 +453,7 @@ function App() {
               .map((d) => {
               const isConnected = connectedIds.includes(d.id);
               const isConnecting = connectingId === d.id;
+              const blockedByActiveLink = activeConnectedId != null && activeConnectedId !== d.id;
               return (
                 <div key={d.id} style={card(isConnected)}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -484,10 +489,17 @@ function App() {
                   ) : (
                     <button
                       onClick={() => handleConnect(d)}
-                      disabled={connectingId != null || !advertisesFeed(d)}
-                      style={miniBtn(advertisesFeed(d) ? "#0275d8" : "#777")}
+                      disabled={connectingId != null || !advertisesFeed(d) || blockedByActiveLink}
+                      title={blockedByActiveLink ? "Disconnect the current node before connecting another." : undefined}
+                      style={miniBtn(advertisesFeed(d) && !blockedByActiveLink ? "#0275d8" : "#777")}
                     >
-                      {isConnecting ? "..." : advertisesFeed(d) ? "Connect" : "Not 0xFEED"}
+                      {isConnecting
+                        ? "..."
+                        : blockedByActiveLink
+                          ? "Disconnect first"
+                          : advertisesFeed(d)
+                            ? "Connect"
+                            : "Not 0xFEED"}
                     </button>
                   )}
                 </div>

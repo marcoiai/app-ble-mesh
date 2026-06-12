@@ -262,6 +262,18 @@ pub async fn connect_device(
     id: String,
     state: tauri::State<'_, BleState>,
 ) -> Result<Vec<ServiceInfo>, String> {
+    {
+        let connected = state.connected.lock().unwrap();
+        if connected.contains_key(&id) {
+            return Err(format!("Device {id} is already connected."));
+        }
+        if let Some(existing_id) = connected.keys().next() {
+            return Err(format!(
+                "Only one active BLE link is supported on macOS right now. Disconnect {existing_id} before connecting another node."
+            ));
+        }
+    }
+
     let adapter = first_adapter(&state).await?;
     let peripheral = find_peripheral_for_connect(&adapter, &id).await?;
 
