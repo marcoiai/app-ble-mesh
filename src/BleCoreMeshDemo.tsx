@@ -13,6 +13,7 @@ interface BleCoreMeshDemoProps {
   runtimePlatform: string;
   connectedId: string | null;
   writeUuid: string;
+  macAdvertise: boolean;
 }
 
 interface ProtocolFrameOut {
@@ -41,7 +42,7 @@ const room = "radio-demo";
 const secret = "levelup-offgrid";
 const OPCODE_CORE_FRAME = 16;
 
-export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: BleCoreMeshDemoProps) {
+export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid, macAdvertise }: BleCoreMeshDemoProps) {
   const runtimeRef = useRef<Runtime | null>(null);
   const lastVisualHelloId = useRef<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -56,7 +57,9 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
   const [busy, setBusy] = useState(false);
 
   const isAndroid = runtimePlatform === "android";
-  const canStart = isAndroid || Boolean(connectedId && writeUuid);
+  const isMacPeripheral = runtimePlatform === "macos" && macAdvertise;
+  const isPeripheral = isAndroid || isMacPeripheral;
+  const canStart = isPeripheral || Boolean(connectedId && writeUuid);
 
   const log = (line: string) => {
     setLogs((prev) => [...prev.slice(-7), `${new Date().toLocaleTimeString()} ${line}`]);
@@ -83,7 +86,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
     if (!canStart) return;
 
     const node = new MeshNode({
-      label: isAndroid ? "Android radio" : "Desktop radio",
+      label: isAndroid ? "Android radio" : isMacPeripheral ? "Mac radio" : "Desktop radio",
       caps: ["ble", "chat", "ping"],
       heartbeatMs: 5000,
       defaultTtl: 6,
@@ -95,7 +98,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
     node.setSecret(secret);
     node.addTransport(
       new BleTransport(
-        isAndroid
+        isPeripheral
           ? { mode: "peripheral", peerId: "ble-neighbor" }
           : {
               mode: "central",
@@ -132,7 +135,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
     setLastPingStatus("idle");
     setLastHello(null);
     setVisualPeerCount(0);
-    log(isAndroid ? "BLE core transport advertising/listening" : "BLE core transport linked to connected device");
+    log(isPeripheral ? "BLE core transport advertising/listening" : "BLE core transport linked to connected device");
     refreshPeers();
   };
 
@@ -143,7 +146,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
       clearInterval(timer);
       void stop();
     };
-  }, [runtimePlatform, connectedId, writeUuid]);
+  }, [runtimePlatform, connectedId, writeUuid, macAdvertise]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -202,36 +205,45 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
     }
   };
 
+  const connectionState = isPeripheral
+    ? "Ready"
+    : connectedId
+      ? "Connected"
+      : "Looking";
+  const connectionSummary = isPeripheral
+    ? "Ready for nearby devices."
+    : connectedId
+      ? "Connected to a nearby device."
+      : "Looking for nearby devices.";
+  const nearbyCount = Math.max(peers.length, visualPeerCount);
+
   return (
     <section style={panel}>
       <div style={header}>
         <div>
-          <h2 style={title}>BLE Core Carrier</h2>
-          <p style={subtitle}>
-            Role: {isAndroid ? "peripheral/listener" : connectedId ? "central/connected" : "waiting"}.
-            {" "}Hello and ping show the live mesh link.
-          </p>
+          <h2 style={title}>Nearby Mesh</h2>
+          <p style={subtitle}>{connectionSummary}</p>
         </div>
-        <span style={status(running)}>{running ? "online" : "waiting"}</span>
+        <span style={status(running)}>{running ? "Online" : "Waiting"}</span>
       </div>
 
       {!canStart && (
-        <p style={hint}>Connect to a writable 0xFEED device to bind the BLE carrier.</p>
+        <p style={hint}>Connect to a nearby mesh device to start.</p>
       )}
 
       <div style={statusGrid}>
-        <StatusTile label="Role" value={isAndroid ? "Peripheral" : connectedId ? "Central" : "Waiting"} tone={running ? "ok" : "wait"} />
-        <StatusTile label="HELLO" value={lastHello ?? "Waiting"} tone={lastHello ? "ok" : "wait"} />
-        <StatusTile label="Peers" value={String(Math.max(peers.length, visualPeerCount))} tone={peers.length > 0 || visualPeerCount > 0 ? "ok" : "wait"} />
-        <StatusTile label="PING" value={pingLabel(lastPingStatus, rtt)} tone={lastPingStatus === "ok" ? "ok" : lastPingStatus === "fail" ? "bad" : "wait"} />
+        <StatusTile label="Status" value={connectionState} tone={running ? "ok" : "wait"} />
+        <StatusTile label="Nearby" value={String(nearbyCount)} tone={nearbyCount > 0 ? "ok" : "wait"} />
+        <StatusTile label="Last signal" value={lastHello ?? "Waiting"} tone={lastHello ? "ok" : "wait"} />
+        <StatusTile label="Ping" value={pingLabel(lastPingStatus, rtt)} tone={lastPingStatus === "ok" ? "ok" : lastPingStatus === "fail" ? "bad" : "wait"} />
       </div>
 
       <div style={row}>
         <button onClick={ping} disabled={!running || peers.length === 0 || busy} style={bigButton(lastPingStatus)}>
-          {busy ? "Pinging..." : "Ping peer"}
+          {busy ? "Pinging..." : "Send ping"}
         </button>
         <button onClick={() => void start()} disabled={!canStart} style={button("#5f6368")}>
-          Restart carrier
+          Restart
         </button>
       </div>
 
@@ -244,9 +256,9 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
 
       <div style={grid}>
         <div style={box}>
-          <strong>Known mesh peers</strong>
+          <strong>Nearby devices</strong>
           {peers.length === 0 ? (
-            <p style={hint}>Waiting for hello frames.</p>
+            <p style={hint}>Waiting for a nearby device.</p>
           ) : (
             peers.map((peer) => (
               <div key={peer.id} style={line}>
@@ -270,7 +282,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, writeUuid }: Ble
           )}
         </div>
         <div style={box}>
-          <strong>Carrier log</strong>
+          <strong>Activity</strong>
           {logs.length === 0 ? (
             <p style={hint}>Idle.</p>
           ) : (
@@ -329,7 +341,7 @@ const title: React.CSSProperties = {
 
 const subtitle: React.CSSProperties = {
   margin: "4px 0 0",
-  color: "#596677",
+  color: "#334155",
   fontSize: 13,
 };
 
@@ -367,8 +379,9 @@ const tile = (tone: "ok" | "wait" | "bad"): React.CSSProperties => ({
 
 const tileLabel: React.CSSProperties = {
   display: "block",
-  color: "#687586",
+  color: "#334155",
   fontSize: 11,
+  fontWeight: 700,
   marginBottom: 2,
 };
 
@@ -436,12 +449,12 @@ const monoLine: React.CSSProperties = {
 };
 
 const muted: React.CSSProperties = {
-  color: "#687586",
+  color: "#475569",
   fontSize: 11,
 };
 
 const hint: React.CSSProperties = {
-  color: "#7a8796",
+  color: "#475569",
   fontSize: 12,
   margin: "8px 0 0",
 };

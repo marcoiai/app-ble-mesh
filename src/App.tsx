@@ -603,6 +603,7 @@ function App() {
         runtimePlatform={runtimePlatform}
         connectedId={connectedId}
         writeUuid={writeUuid}
+        macAdvertise={macAdvertise}
       />
 
       <details style={detailsBox}>
