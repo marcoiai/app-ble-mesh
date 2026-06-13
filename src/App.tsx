@@ -44,6 +44,11 @@ function isBridgeCandidate(device: DeviceInfo): boolean {
   return Boolean(hasFeedServiceData || hasSubNodeManufacturerMarker);
 }
 
+function meshDeviceRole(device: DeviceInfo): "bridge" | "node" | "unknown" {
+  if (!advertisesFeed(device)) return "unknown";
+  return isBridgeCandidate(device) ? "bridge" : "node";
+}
+
 interface CharacteristicInfo {
   uuid: string;
   read: boolean;
@@ -113,7 +118,16 @@ function shortUuid(uuid: string): string {
 }
 
 function deviceLabel(devices: DeviceInfo[], id: string): string {
-  return devices.find((device) => device.id === id)?.name || `Connected BLE ${id.slice(0, 8)}`;
+  const device = devices.find((item) => item.id === id);
+  return device ? meshDisplayName(device) : `Connected BLE ${id.slice(0, 8)}`;
+}
+
+function meshDisplayName(device: DeviceInfo): string {
+  if (!advertisesFeed(device)) return device.name;
+  const role = meshDeviceRole(device);
+  const suffix = device.id.slice(-5);
+  if (role === "bridge") return `Droid bridge ${suffix}`;
+  return `Mac mesh node ${suffix}`;
 }
 
 function looksLikeBleRadioError(error: unknown): boolean {
@@ -885,11 +899,13 @@ function App() {
               const isConnected = connectedIds.includes(d.id);
               const isConnecting = connectingId === d.id;
               const blockedByActiveLink = activeConnectedId != null && activeConnectedId !== d.id;
+              const displayName = meshDisplayName(d);
+              const role = meshDeviceRole(d);
               return (
                 <div key={d.id} style={card(isConnected)}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <strong>
-                      {d.name}
+                      {displayName}
                       {advertisesFeed(d) && (
                         <span
                           style={{
@@ -905,13 +921,28 @@ function App() {
                           FEED
                         </span>
                       )}
+                      {role === "bridge" && (
+                        <span
+                          style={{
+                            marginLeft: 6,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: "#fff",
+                            background: "#23615f",
+                            padding: "1px 5px",
+                            borderRadius: 3,
+                          }}
+                        >
+                          BRIDGE
+                        </span>
+                      )}
                     </strong>
                     <span style={{ color: "#888", fontSize: 12 }}>
                       {d.rssi != null ? `${d.rssi} dBm` : "—"}
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: "#aaa", wordBreak: "break-all" }}>
-                    {d.id}
+                    BLE name: {d.name} · {d.id}
                   </div>
                   {isConnected ? (
                     <button onClick={() => handleDisconnect(d.id)} style={miniBtn("#d9534f")}>
