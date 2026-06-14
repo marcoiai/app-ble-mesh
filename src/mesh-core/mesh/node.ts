@@ -149,7 +149,8 @@ export class MeshNode {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('master_program:ping:confirmed'));
       }
-      ctx.reply({ ts: Date.now() });
+      // Include the forward path so the caller can reconstruct the full route.
+      ctx.reply({ ts: Date.now(), fwdPath: ctx.envelope.path });
     });
   }
 
@@ -320,11 +321,11 @@ export class MeshNode {
     });
   }
 
-  /** Ping a peer and resolve with the round-trip time in ms. */
-  async ping(to: NodeId, timeoutMs = 5000): Promise<number> {
+  /** Ping a peer — resolves with RTT in ms and the forward path taken. */
+  async ping(to: NodeId, timeoutMs = 5000): Promise<{ rtt: number; fwdPath: NodeId[] }> {
     const t0 = Date.now();
-    await this.request(to, 'mesh.ping', {}, timeoutMs);
-    return Date.now() - t0;
+    const reply = await this.request(to, 'mesh.ping', {}, timeoutMs) as { fwdPath?: NodeId[] };
+    return { rtt: Date.now() - t0, fwdPath: reply?.fwdPath ?? [] };
   }
 
   // ── Internals ────────────────────────────────────────────────────────────────
