@@ -24,6 +24,7 @@ const advertisesFeed = (d: DeviceInfo) =>
   d.services.some((u) => u.toLowerCase() === FEED_UUID);
 const OPCODE_PING = 2;
 const OPCODE_PONG = 3;
+const VERBOSE_TRAFFIC_LOGS = false;
 
 function meshCandidates(devices: DeviceInfo[]): DeviceInfo[] {
   return [...devices]
@@ -260,6 +261,7 @@ function App() {
         })
         .catch(() => {});
       unlisten = await listen<NotificationPayload>("ble-notification", (event) => {
+        if (!VERBOSE_TRAFFIC_LOGS) return;
         const { char_uuid, value } = event.payload;
         const ascii = value
           .map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : "."))
@@ -288,17 +290,22 @@ function App() {
         }
         if (f.opcode === OPCODE_PING) {
           addLog(`📍 PING from=${f.src_addr} seq=${f.sequence_number}; auto-pong should answer`);
+          return;
         }
-        addLog(
-          `🧭 PROTOCOL src=${f.src_addr} dst=${f.dst_addr} ttl=${f.ttl} seq=${f.sequence_number} op=${f.opcode} len=${f.payload_len} "${f.payload_text}"`
-        );
+        if (VERBOSE_TRAFFIC_LOGS) {
+          addLog(
+            `🧭 PROTOCOL src=${f.src_addr} dst=${f.dst_addr} ttl=${f.ttl} seq=${f.sequence_number} op=${f.opcode} len=${f.payload_len} "${f.payload_text}"`
+          );
+        }
       });
       unlistenRelay = await listen<ProtocolRelayPayload>("protocol-relay", (event) => {
         const r = event.payload;
         setMeshStats((prev) => ({ ...prev, relays: prev.relays + 1 }));
-        addLog(
-          `🔁 RELAY src=${r.src_addr} dst=${r.dst_addr} seq=${r.sequence_number} ttl=${r.ttl} → ${shortUuid(r.char_uuid)} bytes=${r.bytes_len}`
-        );
+        if (VERBOSE_TRAFFIC_LOGS) {
+          addLog(
+            `🔁 RELAY src=${r.src_addr} dst=${r.dst_addr} seq=${r.sequence_number} ttl=${r.ttl} → ${shortUuid(r.char_uuid)} bytes=${r.bytes_len}`
+          );
+        }
       });
       unlistenTransport = await listen<ProtocolTransportPayload>("protocol-transport", (event) => {
         const t = event.payload;
@@ -307,9 +314,11 @@ function App() {
           lastPackets: t.packet_count,
           lastBytes: t.bytes_len,
         }));
-        addLog(
-          `🧩 TRANSPORT seq=${t.sequence_number} packets=${t.packet_count} bytes=${t.bytes_len}`
-        );
+        if (VERBOSE_TRAFFIC_LOGS) {
+          addLog(
+            `🧩 TRANSPORT seq=${t.sequence_number} packets=${t.packet_count} bytes=${t.bytes_len}`
+          );
+        }
       });
       unlistenMacPeripheral = await listen<string>("macos-peripheral-log", (event) => {
         if (event.payload.includes("STATE poweredOff")) {
@@ -322,7 +331,9 @@ function App() {
           setBleRadioEnabled(false);
           setAutoMeshStatus("Bluetooth permission is blocked for this app.");
         }
-        addLog(`📣 MAC ADV ${event.payload}`);
+        if (event.payload.includes("ERROR") || VERBOSE_TRAFFIC_LOGS) {
+          addLog(`📣 MAC ADV ${event.payload}`);
+        }
       });
       invoke<string>("runtime_platform")
         .then((platform) => {

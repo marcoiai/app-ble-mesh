@@ -27,6 +27,7 @@ import java.util.UUID
 object BleMeshPeripheral {
     private const val TAG = "BleMeshPeripheral"
     private const val MAX_NOTIFY_QUEUE_PER_DEVICE = 256
+    private const val VERBOSE_WIRE_LOGS = false
 
     private val SERVICE_UUID: UUID = UUID.fromString("0000FEED-0000-1000-8000-00805F9B34FB")
     private val CHAR_UUID: UUID = UUID.fromString("0000FEE1-0000-1000-8000-00805F9B34FB")
@@ -205,7 +206,9 @@ object BleMeshPeripheral {
                 queue.pollFirst()
             }
             queue.add(data.copyOf())
-            Log.v(TAG, "send: queued ${data.size} byte(s) for $key, queue=${queue.size}")
+            if (VERBOSE_WIRE_LOGS) {
+                Log.v(TAG, "send: queued ${data.size} byte(s) for $key, queue=${queue.size}")
+            }
             pumpNotifyLocked(device)
         }
     }
@@ -251,7 +254,9 @@ object BleMeshPeripheral {
                 Log.w(TAG, "notify not accepted for $key, dropped ${data.size} byte(s)")
                 pumpNotifyLocked(device)
             } else {
-                Log.v(TAG, "notify accepted for $key, ${data.size} byte(s)")
+                if (VERBOSE_WIRE_LOGS) {
+                    Log.v(TAG, "notify accepted for $key, ${data.size} byte(s)")
+                }
             }
         } catch (t: Throwable) {
             notifying.remove(key)
@@ -315,10 +320,12 @@ object BleMeshPeripheral {
             offset: Int,
             value: ByteArray,
         ) {
-            Log.v(
-                TAG,
-                "write ${device.address} uuid=${characteristic.uuid} len=${value.size} response=$responseNeeded offset=$offset prepared=$preparedWrite",
-            )
+            if (VERBOSE_WIRE_LOGS) {
+                Log.v(
+                    TAG,
+                    "write ${device.address} uuid=${characteristic.uuid} len=${value.size} response=$responseNeeded offset=$offset prepared=$preparedWrite",
+                )
+            }
             if (responseNeeded) {
                 gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
             }
@@ -340,10 +347,12 @@ object BleMeshPeripheral {
             offset: Int,
             value: ByteArray,
         ) {
-            Log.v(
-                TAG,
-                "descriptor write ${device.address} uuid=${descriptor.uuid} len=${value.size} response=$responseNeeded offset=$offset prepared=$preparedWrite value=${value.joinToString("") { "%02x".format(it) }}",
-            )
+            if (VERBOSE_WIRE_LOGS) {
+                Log.v(
+                    TAG,
+                    "descriptor write ${device.address} uuid=${descriptor.uuid} len=${value.size} response=$responseNeeded offset=$offset prepared=$preparedWrite value=${value.joinToString("") { "%02x".format(it) }}",
+                )
+            }
             if (descriptor.uuid == CCCD_UUID && value.isNotEmpty()) {
                 val enableNotify = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                 synchronized(subscribed) {
@@ -369,7 +378,9 @@ object BleMeshPeripheral {
                 notifying.remove(key)
                 pumpNotifyLocked(device)
             }
-            Log.v(TAG, "notification sent ${device.address}: $status")
+            if (VERBOSE_WIRE_LOGS) {
+                Log.v(TAG, "notification sent ${device.address}: $status")
+            }
         }
 
         override fun onCharacteristicReadRequest(

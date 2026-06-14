@@ -16,6 +16,7 @@ const FEED_CHAR_UUID: &str = "0000fee1-0000-1000-8000-00805f9b34fb";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(6);
 const SUBSCRIBE_TIMEOUT: Duration = Duration::from_secs(4);
+const VERBOSE_BLE_LOGS: bool = false;
 
 // =====================================================================================
 //  MODELO DE PACOTE DO MESH (transporte agnóstico que viaja DENTRO de uma característica)
@@ -1035,14 +1036,16 @@ async fn handle_protocol_bytes(
         }
     };
 
-    println!(
-        "[BLE RX] frame opcode={} src={} dst={} seq={} payload={} byte(s)",
-        frame.opcode,
-        frame.src_addr,
-        frame.dst_addr,
-        frame.sequence_number,
-        frame.payload.len()
-    );
+    if VERBOSE_BLE_LOGS {
+        println!(
+            "[BLE RX] frame opcode={} src={} dst={} seq={} payload={} byte(s)",
+            frame.opcode,
+            frame.src_addr,
+            frame.dst_addr,
+            frame.sequence_number,
+            frame.payload.len()
+        );
+    }
 
     process_completed_frame(
         app,
