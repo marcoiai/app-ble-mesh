@@ -66,6 +66,7 @@ pub struct ReassemblyCache {
 struct PartialFrame {
     chunks: Vec<Option<Vec<u8>>>,
     received: usize,
+    received_at: std::time::Instant,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +122,22 @@ impl ReassemblyCache {
             }
         }
     }
+
+    /// Evict partial frames older than `timeout`. Prevents memory leaks when a
+    /// fragment is lost in transit and reassembly never completes.
+    pub fn prune_stale(&mut self, timeout: std::time::Duration) {
+        let now = std::time::Instant::now();
+        let stale: Vec<FrameKey> = self
+            .partials
+            .iter()
+            .filter(|(_, v)| now.duration_since(v.received_at) > timeout)
+            .map(|(k, _)| *k)
+            .collect();
+        for key in stale {
+            self.partials.remove(&key);
+            self.order.retain(|k| k != &key);
+        }
+    }
 }
 
 pub fn process_incoming(
@@ -157,16 +174,20 @@ pub fn process_incoming(
 }
 
 pub fn derive_node_addr() -> u16 {
-    let pid = std::process::id() as u16;
-    let t = std::time::SystemTime::now()
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    std::process::id().hash(&mut h);
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as u16)
-        .unwrap_or(0);
-    let id = pid ^ t;
-    if id == 0 || id == BROADCAST_ADDR {
-        1
-    } else {
-        id
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+        .hash(&mut h);
+    let id = (h.finish() & 0xffff) as u16;
+    match id {
+        0 => 1,
+        BROADCAST_ADDR => 0xfffe,
+        x => x,
     }
 }
 
@@ -191,6 +212,16 @@ pub fn encode(frame: &ProtocolFrame) -> Vec<u8> {
 
 pub fn encode_for_ble_transport(frame: &ProtocolFrame) -> Vec<Vec<u8>> {
     fragment_bytes(&encode(frame), DEFAULT_BLE_PACKET_LEN)
+}
+
+/// Like `encode_for_ble_transport` but uses the negotiated ATT MTU from the
+/// connected peripheral (pass `peer.mtu() - 3` for the ATT overhead).
+/// Falls back to DEFAULT_BLE_PACKET_LEN if mtu is too small.
+/// Wired up once btleplug is upgraded to 0.12 (which exposes `peer.mtu()`).
+#[allow(dead_code)]
+pub fn encode_for_ble_transport_mtu(frame: &ProtocolFrame, mtu: usize) -> Vec<Vec<u8>> {
+    let packet_len = mtu.max(DEFAULT_BLE_PACKET_LEN);
+    fragment_bytes(&encode(frame), packet_len)
 }
 
 pub fn fragment_bytes(bytes: &[u8], packet_len: usize) -> Vec<Vec<u8>> {
@@ -266,6 +297,10 @@ pub fn ingest_transport_packet(
         return Err("protocol: fragment checksum mismatch".to_string());
     }
 
+    // Evict partial frames that have been waiting more than 5 s — they'll never
+    // complete because a fragment was lost. Keep them from accumulating forever.
+    cache.prune_stale(std::time::Duration::from_secs(5));
+
     let key = FrameKey {
         src_addr,
         sequence_number,
@@ -275,6 +310,7 @@ pub fn ingest_transport_packet(
     let partial = cache.partials.entry(key).or_insert_with(|| PartialFrame {
         chunks: vec![None; total],
         received: 0,
+        received_at: std::time::Instant::now(),
     });
 
     if partial.chunks.len() != total {

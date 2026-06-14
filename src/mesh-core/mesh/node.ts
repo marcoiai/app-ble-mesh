@@ -14,7 +14,7 @@ import { Router, type Route } from './router.ts';
 import { shortestPaths } from './graph.ts';
 import { ForwardStore } from './store.ts';
 import { createSecureChannel, type SecureChannel } from './secure.ts';
-import { packBody, unpackBody, compressionSupported, encodedSize, type BodyCodec } from './compress.ts';
+import { packBody, packBodySmallest, unpackBody, compressionSupported, encodedSize, type BodyCodec } from './compress.ts';
 import type { JsonTransportEnvelope } from '../json-transport.ts';
 import type { Transport } from './transport.ts';
 import {
@@ -57,12 +57,13 @@ export interface MeshNodeOptions extends IdentityOptions {
   /** Only compress payloads at least this many bytes (default 256). */
   compressThreshold?: number;
   /**
-   * Open-mesh body codec: 'gzip' (default, wire-unchanged), 'lp' (levelpack
-   * bytecode), or 'lpgz' (levelpack→gzip). Receivers always decode by the
-   * envelope's `zc`, so this only picks how THIS node encodes. Leave 'gzip'
-   * until every peer ships levelpack decoding.
+   * Open-mesh body codec. 'auto' (default) tries gzip/lp/lpgz and picks the
+   * smallest result for each message. 'gzip'/'lp'/'lpgz' forces a specific
+   * codec — useful for debugging or when you need deterministic wire output.
+   * Receivers always decode by the envelope's `zc` field so all options are
+   * backward-compatible.
    */
-  bodyCodec?: BodyCodec;
+  bodyCodec?: BodyCodec | 'auto';
   /**
    * Store-and-forward hold time (ms). A node keeps recent frames and replays them to
    * peers that appear later, so a message survives gaps in time ("some e volta").
@@ -117,7 +118,7 @@ export class MeshNode {
   private heartbeatMs: number;
   private compress: boolean;
   private compressThreshold: number;
-  private bodyCodec: BodyCodec;
+  private bodyCodec: BodyCodec | 'auto';
   private gossipFanout: number;
   private heartbeat?: ReturnType<typeof setInterval>;
   private running = false;
@@ -131,8 +132,11 @@ export class MeshNode {
     this.discoveryTtl = opts.discoveryTtl ?? 3;
     this.heartbeatMs = opts.heartbeatMs ?? 4000;
     this.compress = (opts.compress ?? true) && compressionSupported();
-    this.compressThreshold = opts.compressThreshold ?? 256;
-    this.bodyCodec = opts.bodyCodec ?? 'gzip';
+    // Lower threshold vs the old 256 B default: levelpack has no fixed header
+    // overhead so it's worth trying even on short bodies (chat, ping, game events).
+    this.compressThreshold = opts.compressThreshold ?? 64;
+    // 'auto' tries all three codecs and picks the smallest each time.
+    this.bodyCodec = opts.bodyCodec ?? 'auto';
     // 0 = classic flood (every direct neighbour via sendAll). ≥1 = gossip with that fanout.
     this.gossipFanout = Math.max(0, Math.floor(opts.gossipFanout ?? 0));
     // Default to unicast: directed messages follow the Dijkstra shortest path when one is
@@ -143,7 +147,7 @@ export class MeshNode {
     // Also fire the scene robot's "responding" glow (green) when we receive a ping.
     this.on('mesh.ping', (ctx) => {
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('master-program:ping:confirmed'));
+        window.dispatchEvent(new Event('master_program:ping:confirmed'));
       }
       ctx.reply({ ts: Date.now() });
     });
@@ -366,12 +370,16 @@ export class MeshNode {
         .then((sealed) => this.route({ ...env, enc: true, body: sealed }))
         .catch((err) => console.error('[mesh] seal failed', err));
     } else if (this.compress && !isControl && encodedSize(env.body) >= this.compressThreshold) {
-      // Open mesh: compress larger payloads (trade/stream) to save bandwidth.
-      // `zc` is omitted for plain gzip so the wire is byte-identical to before.
-      const codec = this.bodyCodec;
-      packBody(env.body, codec)
-        .then((zipped) =>
-          this.route({ ...env, zip: true, ...(codec === 'gzip' ? {} : { zc: codec }), body: zipped }),
+      // Open mesh: compress payloads to save bandwidth.
+      // 'auto' picks the smallest codec per message; explicit codec forces one.
+      // `zc` is omitted when the winner is gzip for backward compatibility.
+      const bodyCodec = this.bodyCodec;
+      const pick = bodyCodec === 'auto'
+        ? packBodySmallest(env.body)
+        : packBody(env.body, bodyCodec).then((data) => ({ codec: bodyCodec as BodyCodec, data }));
+      pick
+        .then(({ codec, data }) =>
+          this.route({ ...env, zip: true, ...(codec === 'gzip' ? {} : { zc: codec }), body: data }),
         )
         .catch(() => this.route(env)); // compression unavailable → send plain
     } else {
