@@ -25,6 +25,7 @@ const advertisesFeed = (d: DeviceInfo) =>
 const OPCODE_PING = 2;
 const OPCODE_PONG = 3;
 const VERBOSE_TRAFFIC_LOGS = false;
+const PASSIVE_REFRESH_MS = 4000;
 
 function meshCandidates(devices: DeviceInfo[]): DeviceInfo[] {
   return [...devices]
@@ -388,7 +389,7 @@ function App() {
     };
 
     refreshRadio();
-    const timer = window.setInterval(refreshRadio, 3000);
+    const timer = window.setInterval(refreshRadio, PASSIVE_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -416,7 +417,7 @@ function App() {
     };
 
     refreshLinks();
-    const timer = window.setInterval(refreshLinks, 1500);
+    const timer = window.setInterval(refreshLinks, PASSIVE_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -464,7 +465,7 @@ function App() {
     };
 
     refreshNativeLinks();
-    const timer = window.setInterval(refreshNativeLinks, 2000);
+    const timer = window.setInterval(refreshNativeLinks, PASSIVE_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

@@ -43,6 +43,7 @@ const room = "radio-demo";
 const secret = "levelup-offgrid";
 const OPCODE_CORE_FRAME = 16;
 const DEVICE_LABEL_KEY = "app-ble-mesh.deviceLabel";
+const MESH_TICK_MS = 4000;
 type PingToast = { text: string; tone: "wait" | "ok" | "bad" };
 
 export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCount, writeUuid, macAdvertise }: BleCoreMeshDemoProps) {
@@ -122,7 +123,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     const node = new MeshNode({
       label: localMeshLabel(runtimePlatform),
       caps: ["ble", "chat", "ping"],
-      heartbeatMs: 5000,
+      heartbeatMs: MESH_TICK_MS,
       defaultTtl: 6,
       discoveryTtl: 4,
       routing: "unicast",
@@ -179,7 +180,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
 
   useEffect(() => {
     void start();
-    const timer = setInterval(refreshPeers, 800);
+    const timer = setInterval(refreshPeers, MESH_TICK_MS);
     return () => {
       clearInterval(timer);
       void stop();

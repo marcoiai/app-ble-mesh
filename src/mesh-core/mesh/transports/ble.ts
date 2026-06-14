@@ -21,6 +21,8 @@ export interface BleOptions {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const DEFAULT_PRESENCE_MS = 4000;
+const DEFAULT_PEER_TIMEOUT_MS = DEFAULT_PRESENCE_MS * 3;
 
 function frameToB64(frame: Uint8Array): string {
   let bin = '';
@@ -53,8 +55,8 @@ export class BleTransport extends Emitter<TransportEvents> implements Transport 
   constructor(opts: BleOptions = {}) {
     super();
     this.peerId = opts.peerId ?? globalThis.crypto.randomUUID();
-    this.presenceMs = opts.presenceMs ?? 1800;
-    this.peerTimeoutMs = opts.peerTimeoutMs ?? 8000;
+    this.presenceMs = opts.presenceMs ?? DEFAULT_PRESENCE_MS;
+    this.peerTimeoutMs = opts.peerTimeoutMs ?? DEFAULT_PEER_TIMEOUT_MS;
   }
 
   async start(): Promise<void> {
