@@ -38,8 +38,13 @@ export interface Envelope {
   reply?: boolean;
   /** True when `body` is a sealed JsonTransportEnvelope (gzip + AES-GCM). */
   enc?: boolean;
-  /** True when `body` is a gzip+base64 compressed payload (open mesh). */
+  /** True when `body` is a compressed payload (open mesh). */
   zip?: boolean;
+  /**
+   * Which body codec produced `body` when `zip` is true. Absent == 'gzip', so
+   * frames from nodes that predate levelpack still decode. See compress.ts.
+   */
+  zc?: 'gzip' | 'lp' | 'lpgz';
   /** Application payload. */
   body: unknown;
 }

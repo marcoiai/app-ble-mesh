@@ -14,7 +14,7 @@ import { Router, type Route } from './router.ts';
 import { shortestPaths } from './graph.ts';
 import { ForwardStore } from './store.ts';
 import { createSecureChannel, type SecureChannel } from './secure.ts';
-import { gzipValue, gunzipValue, compressionSupported, encodedSize } from './compress.ts';
+import { packBody, unpackBody, compressionSupported, encodedSize, type BodyCodec } from './compress.ts';
 import type { JsonTransportEnvelope } from '../json-transport.ts';
 import type { Transport } from './transport.ts';
 import {
@@ -56,6 +56,13 @@ export interface MeshNodeOptions extends IdentityOptions {
   compress?: boolean;
   /** Only compress payloads at least this many bytes (default 256). */
   compressThreshold?: number;
+  /**
+   * Open-mesh body codec: 'gzip' (default, wire-unchanged), 'lp' (levelpack
+   * bytecode), or 'lpgz' (levelpack→gzip). Receivers always decode by the
+   * envelope's `zc`, so this only picks how THIS node encodes. Leave 'gzip'
+   * until every peer ships levelpack decoding.
+   */
+  bodyCodec?: BodyCodec;
   /**
    * Store-and-forward hold time (ms). A node keeps recent frames and replays them to
    * peers that appear later, so a message survives gaps in time ("some e volta").
@@ -110,6 +117,7 @@ export class MeshNode {
   private heartbeatMs: number;
   private compress: boolean;
   private compressThreshold: number;
+  private bodyCodec: BodyCodec;
   private gossipFanout: number;
   private heartbeat?: ReturnType<typeof setInterval>;
   private running = false;
@@ -124,6 +132,7 @@ export class MeshNode {
     this.heartbeatMs = opts.heartbeatMs ?? 4000;
     this.compress = (opts.compress ?? true) && compressionSupported();
     this.compressThreshold = opts.compressThreshold ?? 256;
+    this.bodyCodec = opts.bodyCodec ?? 'gzip';
     // 0 = classic flood (every direct neighbour via sendAll). ≥1 = gossip with that fanout.
     this.gossipFanout = Math.max(0, Math.floor(opts.gossipFanout ?? 0));
     // Default to unicast: directed messages follow the Dijkstra shortest path when one is
@@ -357,9 +366,13 @@ export class MeshNode {
         .then((sealed) => this.route({ ...env, enc: true, body: sealed }))
         .catch((err) => console.error('[mesh] seal failed', err));
     } else if (this.compress && !isControl && encodedSize(env.body) >= this.compressThreshold) {
-      // Open mesh: gzip larger payloads (trade/stream) to save bandwidth.
-      gzipValue(env.body)
-        .then((zipped) => this.route({ ...env, zip: true, body: zipped }))
+      // Open mesh: compress larger payloads (trade/stream) to save bandwidth.
+      // `zc` is omitted for plain gzip so the wire is byte-identical to before.
+      const codec = this.bodyCodec;
+      packBody(env.body, codec)
+        .then((zipped) =>
+          this.route({ ...env, zip: true, ...(codec === 'gzip' ? {} : { zc: codec }), body: zipped }),
+        )
         .catch(() => this.route(env)); // compression unavailable → send plain
     } else {
       this.route(env);
@@ -409,10 +422,11 @@ export class MeshNode {
         .catch(() => {}); // wrong passphrase / corrupt frame
       return;
     }
-    // Compressed payload: inflate before delivery.
+    // Compressed payload: inflate before delivery, using the codec the sender
+    // declared (`zc`; absent == 'gzip', so pre-levelpack frames still read).
     if (env.zip) {
-      gunzipValue(env.body as string)
-        .then((body) => this.deliver({ ...env, zip: false, body }, fromPeer, now))
+      unpackBody(env.body as string, env.zc ?? 'gzip')
+        .then((body) => this.deliver({ ...env, zip: false, zc: undefined, body }, fromPeer, now))
         .catch(() => {});
       return;
     }

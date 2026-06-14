@@ -421,8 +421,11 @@ class BinaryWriter {
 
 class BinaryReader {
   private pos = 0;
+  private bytes: Uint8Array;
 
-  constructor(private bytes: Uint8Array) {}
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes;
+  }
 
   done(): boolean {
     return this.pos === this.bytes.length;
