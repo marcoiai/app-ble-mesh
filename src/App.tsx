@@ -117,6 +117,10 @@ function shortUuid(uuid: string): string {
   return m ? `0x${m[1].toUpperCase()}` : uuid;
 }
 
+function shortDeviceId(id: string): string {
+  return id.length > 10 ? id.slice(-5) : id;
+}
+
 function deviceLabel(devices: DeviceInfo[], id: string): string {
   const device = devices.find((item) => item.id === id);
   return device ? meshDisplayName(device) : `Connected BLE ${id.slice(0, 8)}`;
@@ -125,9 +129,8 @@ function deviceLabel(devices: DeviceInfo[], id: string): string {
 function meshDisplayName(device: DeviceInfo): string {
   if (!advertisesFeed(device)) return device.name;
   const role = meshDeviceRole(device);
-  const suffix = device.id.slice(-5);
-  if (role === "bridge") return `Droid bridge ${suffix}`;
-  return `Mac mesh node ${suffix}`;
+  if (role === "bridge") return "Droid bridge";
+  return "Mac mesh node";
 }
 
 function looksLikeBleRadioError(error: unknown): boolean {
@@ -772,6 +775,17 @@ function App() {
     }
   };
 
+  const scanDevices = visibleDevices.filter((d) => !feedOnly || advertisesFeed(d));
+  const bleNameCounts = scanDevices.reduce<Map<string, number>>((counts, device) => {
+    counts.set(device.name, (counts.get(device.name) ?? 0) + 1);
+    return counts;
+  }, new Map());
+  const sharedBleNames = new Set(
+    [...bleNameCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([name]) => name)
+  );
+
   return (
     <main style={{ padding: 20, fontFamily: "sans-serif", maxWidth: 900, margin: "0 auto" }}>
       <h1 style={{ marginBottom: 4 }}>Agnostic BLE — Connection</h1>
@@ -893,14 +907,13 @@ function App() {
             {visibleDevices.length === 0 && (
               <p style={{ color: "#999" }}>No devices yet. Run a scan.</p>
             )}
-            {visibleDevices
-              .filter((d) => !feedOnly || advertisesFeed(d))
-              .map((d) => {
+            {scanDevices.map((d) => {
               const isConnected = connectedIds.includes(d.id);
               const isConnecting = connectingId === d.id;
               const blockedByActiveLink = activeConnectedId != null && activeConnectedId !== d.id;
               const displayName = meshDisplayName(d);
               const role = meshDeviceRole(d);
+              const hasSharedBleName = sharedBleNames.has(d.name);
               return (
                 <div key={d.id} style={card(isConnected)}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -942,7 +955,8 @@ function App() {
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: "#aaa", wordBreak: "break-all" }}>
-                    BLE name: {d.name} · {d.id}
+                    {d.name} · {shortDeviceId(d.id)}
+                    {hasSharedBleName ? " · shared BLE name" : ""}
                   </div>
                   {isConnected ? (
                     <button onClick={() => handleDisconnect(d.id)} style={miniBtn("#d9534f")}>
