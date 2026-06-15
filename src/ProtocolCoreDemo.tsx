@@ -179,9 +179,10 @@ export function ProtocolCoreDemo() {
     setBusyPing(true);
     setRtt(null);
     try {
-      const ms = await rt.alpha.ping(rt.beta.id, 2500);
+      const { rtt: ms, fwdPath } = await rt.alpha.ping(rt.beta.id, 2500);
       setRtt(ms);
-      pushLog(`Alpha pinged Beta through Relay in ${ms}ms`);
+      const hops = fwdPath.length > 1 ? ` (${fwdPath.length - 1} hop)` : "";
+      pushLog(`Alpha pinged Beta through Relay in ${ms}ms${hops}`);
       refreshPeers();
     } catch (err) {
       pushLog(`ping failed: ${String(err)}`);

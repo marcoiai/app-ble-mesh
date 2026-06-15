@@ -24,6 +24,8 @@ const advertisesFeed = (d: DeviceInfo) =>
   d.services.some((u) => u.toLowerCase() === FEED_UUID);
 const OPCODE_PING = 2;
 const OPCODE_PONG = 3;
+const VERBOSE_TRAFFIC_LOGS = false;
+const PASSIVE_REFRESH_MS = 4000;
 
 function meshCandidates(devices: DeviceInfo[]): DeviceInfo[] {
   return [...devices]
@@ -117,6 +119,10 @@ function shortUuid(uuid: string): string {
   return m ? `0x${m[1].toUpperCase()}` : uuid;
 }
 
+function shortDeviceId(id: string): string {
+  return id.length > 10 ? id.slice(-5) : id;
+}
+
 function deviceLabel(devices: DeviceInfo[], id: string): string {
   const device = devices.find((item) => item.id === id);
   return device ? meshDisplayName(device) : `Connected BLE ${id.slice(0, 8)}`;
@@ -125,9 +131,8 @@ function deviceLabel(devices: DeviceInfo[], id: string): string {
 function meshDisplayName(device: DeviceInfo): string {
   if (!advertisesFeed(device)) return device.name;
   const role = meshDeviceRole(device);
-  const suffix = device.id.slice(-5);
-  if (role === "bridge") return `Droid bridge ${suffix}`;
-  return `Mac mesh node ${suffix}`;
+  if (role === "bridge") return "Droid bridge";
+  return "Mac mesh node";
 }
 
 function looksLikeBleRadioError(error: unknown): boolean {
@@ -257,6 +262,7 @@ function App() {
         })
         .catch(() => {});
       unlisten = await listen<NotificationPayload>("ble-notification", (event) => {
+        if (!VERBOSE_TRAFFIC_LOGS) return;
         const { char_uuid, value } = event.payload;
         const ascii = value
           .map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : "."))
@@ -285,17 +291,22 @@ function App() {
         }
         if (f.opcode === OPCODE_PING) {
           addLog(`📍 PING from=${f.src_addr} seq=${f.sequence_number}; auto-pong should answer`);
+          return;
         }
-        addLog(
-          `🧭 PROTOCOL src=${f.src_addr} dst=${f.dst_addr} ttl=${f.ttl} seq=${f.sequence_number} op=${f.opcode} len=${f.payload_len} "${f.payload_text}"`
-        );
+        if (VERBOSE_TRAFFIC_LOGS) {
+          addLog(
+            `🧭 PROTOCOL src=${f.src_addr} dst=${f.dst_addr} ttl=${f.ttl} seq=${f.sequence_number} op=${f.opcode} len=${f.payload_len} "${f.payload_text}"`
+          );
+        }
       });
       unlistenRelay = await listen<ProtocolRelayPayload>("protocol-relay", (event) => {
         const r = event.payload;
         setMeshStats((prev) => ({ ...prev, relays: prev.relays + 1 }));
-        addLog(
-          `🔁 RELAY src=${r.src_addr} dst=${r.dst_addr} seq=${r.sequence_number} ttl=${r.ttl} → ${shortUuid(r.char_uuid)} bytes=${r.bytes_len}`
-        );
+        if (VERBOSE_TRAFFIC_LOGS) {
+          addLog(
+            `🔁 RELAY src=${r.src_addr} dst=${r.dst_addr} seq=${r.sequence_number} ttl=${r.ttl} → ${shortUuid(r.char_uuid)} bytes=${r.bytes_len}`
+          );
+        }
       });
       unlistenTransport = await listen<ProtocolTransportPayload>("protocol-transport", (event) => {
         const t = event.payload;
@@ -304,9 +315,11 @@ function App() {
           lastPackets: t.packet_count,
           lastBytes: t.bytes_len,
         }));
-        addLog(
-          `🧩 TRANSPORT seq=${t.sequence_number} packets=${t.packet_count} bytes=${t.bytes_len}`
-        );
+        if (VERBOSE_TRAFFIC_LOGS) {
+          addLog(
+            `🧩 TRANSPORT seq=${t.sequence_number} packets=${t.packet_count} bytes=${t.bytes_len}`
+          );
+        }
       });
       unlistenMacPeripheral = await listen<string>("macos-peripheral-log", (event) => {
         if (event.payload.includes("STATE poweredOff")) {
@@ -319,7 +332,9 @@ function App() {
           setBleRadioEnabled(false);
           setAutoMeshStatus("Bluetooth permission is blocked for this app.");
         }
-        addLog(`📣 MAC ADV ${event.payload}`);
+        if (event.payload.includes("ERROR") || VERBOSE_TRAFFIC_LOGS) {
+          addLog(`📣 MAC ADV ${event.payload}`);
+        }
       });
       invoke<string>("runtime_platform")
         .then((platform) => {
@@ -374,7 +389,7 @@ function App() {
     };
 
     refreshRadio();
-    const timer = window.setInterval(refreshRadio, 3000);
+    const timer = window.setInterval(refreshRadio, PASSIVE_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -402,7 +417,7 @@ function App() {
     };
 
     refreshLinks();
-    const timer = window.setInterval(refreshLinks, 1500);
+    const timer = window.setInterval(refreshLinks, PASSIVE_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -450,7 +465,7 @@ function App() {
     };
 
     refreshNativeLinks();
-    const timer = window.setInterval(refreshNativeLinks, 2000);
+    const timer = window.setInterval(refreshNativeLinks, PASSIVE_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -772,6 +787,17 @@ function App() {
     }
   };
 
+  const scanDevices = visibleDevices.filter((d) => !feedOnly || advertisesFeed(d));
+  const bleNameCounts = scanDevices.reduce<Map<string, number>>((counts, device) => {
+    counts.set(device.name, (counts.get(device.name) ?? 0) + 1);
+    return counts;
+  }, new Map());
+  const sharedBleNames = new Set(
+    [...bleNameCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([name]) => name)
+  );
+
   return (
     <main style={{ padding: 20, fontFamily: "sans-serif", maxWidth: 900, margin: "0 auto" }}>
       <h1 style={{ marginBottom: 4 }}>Agnostic BLE — Connection</h1>
@@ -893,14 +919,13 @@ function App() {
             {visibleDevices.length === 0 && (
               <p style={{ color: "#999" }}>No devices yet. Run a scan.</p>
             )}
-            {visibleDevices
-              .filter((d) => !feedOnly || advertisesFeed(d))
-              .map((d) => {
+            {scanDevices.map((d) => {
               const isConnected = connectedIds.includes(d.id);
               const isConnecting = connectingId === d.id;
               const blockedByActiveLink = activeConnectedId != null && activeConnectedId !== d.id;
               const displayName = meshDisplayName(d);
               const role = meshDeviceRole(d);
+              const hasSharedBleName = sharedBleNames.has(d.name);
               return (
                 <div key={d.id} style={card(isConnected)}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -942,7 +967,8 @@ function App() {
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: "#aaa", wordBreak: "break-all" }}>
-                    BLE name: {d.name} · {d.id}
+                    {d.name} · {shortDeviceId(d.id)}
+                    {hasSharedBleName ? " · shared BLE name" : ""}
                   </div>
                   {isConnected ? (
                     <button onClick={() => handleDisconnect(d.id)} style={miniBtn("#d9534f")}>

@@ -43,6 +43,7 @@ const room = "radio-demo";
 const secret = "levelup-offgrid";
 const OPCODE_CORE_FRAME = 16;
 const DEVICE_LABEL_KEY = "app-ble-mesh.deviceLabel";
+const MESH_TICK_MS = 4000;
 type PingToast = { text: string; tone: "wait" | "ok" | "bad" };
 
 export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCount, writeUuid, macAdvertise }: BleCoreMeshDemoProps) {
@@ -64,6 +65,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
+  const [peerStats, setPeerStats] = useState<Map<string, { rtt: number; path: string[] }>>(new Map());
 
   const isAndroid = runtimePlatform === "android";
   const isMacPeripheral = runtimePlatform === "macos" && macAdvertise;
@@ -121,7 +123,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     const node = new MeshNode({
       label: localMeshLabel(runtimePlatform),
       caps: ["ble", "chat", "ping"],
-      heartbeatMs: 5000,
+      heartbeatMs: MESH_TICK_MS,
       defaultTtl: 6,
       discoveryTtl: 4,
       routing: "unicast",
@@ -178,7 +180,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
 
   useEffect(() => {
     void start();
-    const timer = setInterval(refreshPeers, 800);
+    const timer = setInterval(refreshPeers, MESH_TICK_MS);
     return () => {
       clearInterval(timer);
       void stop();
@@ -257,12 +259,14 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     setPingNotice("Sending ping...");
     showPingToast({ text: `Pinging ${peer.label}...`, tone: "wait" });
     try {
-      const ms = await rt.node.ping(peer.id, 3500);
+      const { rtt: ms, fwdPath } = await rt.node.ping(peer.id, 3500);
       setRtt(ms);
       setLastPingStatus("ok");
       setPingNotice(`Ping worked (${ms}ms)`);
       showPingToast({ text: `Ping worked: ${ms}ms`, tone: "ok" }, 3200);
-      log(`ping ${peer.label}: ${ms}ms`);
+      setPeerStats((prev) => new Map(prev).set(peer.id, { rtt: ms, path: fwdPath }));
+      const pathStr = fwdPath.length > 1 ? ` via ${fwdPath.length - 1} hop(s)` : " direct";
+      log(`ping ${peer.label}: ${ms}ms${pathStr}`);
     } catch (err) {
       setLastPingStatus("fail");
       setPingNotice("Ping timed out");
@@ -340,17 +344,31 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
           {peers.length === 0 ? (
             <p style={hint}>Waiting for a nearby device.</p>
           ) : (
-            peers.map((peer) => (
-              <button
-                key={peer.id}
-                type="button"
-                onClick={() => setSelectedPeerId(peer.id)}
-                style={peerButton(peer.id === selectedPeerId)}
-              >
-                <span>{peer.label}</span>
-                <span>{peer.direct ? "direct" : `${peer.hops} hop`}</span>
-              </button>
-            ))
+            peers.map((peer) => {
+              const stats = peerStats.get(peer.id);
+              const nodeId = runtimeRef.current?.node.id;
+              return (
+                <button
+                  key={peer.id}
+                  type="button"
+                  onClick={() => setSelectedPeerId(peer.id)}
+                  style={peerButton(peer.id === selectedPeerId)}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                    <span>{peer.label}</span>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      {stats && <span style={rttBadge}>{stats.rtt}ms</span>}
+                      <span style={muted}>{peer.direct ? "direct" : `${peer.hops} hop`}</span>
+                    </div>
+                  </div>
+                  {stats && stats.path.length > 0 && (
+                    <div style={pathLine}>
+                      {pathLabels(stats.path, nodeId, peers).join(" → ")}
+                    </div>
+                  )}
+                </button>
+              );
+            })
           )}
         </div>
         <div style={box}>
@@ -381,6 +399,13 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
       </div>
     </section>
   );
+}
+
+function pathLabels(path: string[], localId: string | undefined, peers: PeerRecord[]): string[] {
+  return path.map((nodeId) => {
+    if (nodeId === localId) return "You";
+    return peers.find((p) => p.id === nodeId)?.label ?? nodeId.slice(0, 6);
+  });
 }
 
 function shortNode(id: string | undefined): string {
@@ -619,4 +644,22 @@ const hint: React.CSSProperties = {
   color: "#475569",
   fontSize: 12,
   margin: "8px 0 0",
+};
+
+const rttBadge: React.CSSProperties = {
+  background: "#d1e7dd",
+  color: "#0f5132",
+  borderRadius: 999,
+  padding: "1px 6px",
+  fontSize: 11,
+  fontWeight: 700,
+};
+
+const pathLine: React.CSSProperties = {
+  width: "100%",
+  marginTop: 3,
+  fontSize: 10,
+  color: "#64748b",
+  fontFamily: "monospace",
+  textAlign: "left",
 };

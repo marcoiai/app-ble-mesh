@@ -116,7 +116,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 
 fn hex_decode(text: &str) -> Result<Vec<u8>, String> {
     let text = text.trim();
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return Err("hex length must be even".to_string());
     }
 
