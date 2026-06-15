@@ -1075,8 +1075,9 @@ async fn process_completed_frame(frame: ProtocolFrame, ctx: ProtocolContext<'_>)
             if let Some(device_id) = ctx.incoming_device_id.as_ref() {
                 let target = ctx.connected.lock().unwrap().get(device_id).cloned();
                 if let Some(peripheral) = target {
-                    let _ = write_protocol_packets_to_peripheral(&peripheral, &ctx.char_uuid, &packets)
-                        .await;
+                    let _ =
+                        write_protocol_packets_to_peripheral(&peripheral, &ctx.char_uuid, &packets)
+                            .await;
                     emit_protocol_transport(ctx.app, pong.sequence_number, &packets);
                 }
             }
@@ -1088,7 +1089,8 @@ async fn process_completed_frame(frame: ProtocolFrame, ctx: ProtocolContext<'_>)
     };
 
     let relay_packets = protocol::encode_for_ble_transport(&relay_frame);
-    let targets: Vec<(String, Peripheral)> = ctx.connected
+    let targets: Vec<(String, Peripheral)> = ctx
+        .connected
         .lock()
         .unwrap()
         .iter()
