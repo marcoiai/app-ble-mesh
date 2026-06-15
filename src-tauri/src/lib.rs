@@ -105,14 +105,14 @@ fn macos_peripheral_status() -> MacosPeripheralStatusOut {
 }
 
 #[tauri::command]
-fn mesh_ble_start(app: tauri::AppHandle) -> Result<(), String> {
+fn mesh_ble_start(_app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let _ = ble_macos::start(app.clone())?;
+        let _ = ble_macos::start(_app.clone())?;
     }
     #[cfg(target_os = "android")]
     {
-        ble_android::start(app);
+        ble_android::start(_app);
     }
     Ok(())
 }

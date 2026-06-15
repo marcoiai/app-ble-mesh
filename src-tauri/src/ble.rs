@@ -209,6 +209,7 @@ pub struct SendProtocolPingRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendPeripheralProtocolTextRequest {
+    #[allow(dead_code)]
     pub target_id: Option<String>,
     pub text: String,
     pub dst_addr: Option<u16>,
