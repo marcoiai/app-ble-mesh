@@ -42,10 +42,10 @@ fn peripheral_send(data: Vec<u8>) -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
         ble_macos::send(data.clone())?;
-        return Ok(format!(
+        Ok(format!(
             "Notified {} byte(s) to subscribed centrals",
             data.len()
-        ));
+        ))
     }
 
     #[cfg(not(any(target_os = "android", target_os = "macos")))]
@@ -60,9 +60,9 @@ fn macos_peripheral_start(app: tauri::AppHandle) -> Result<MacosPeripheralStatus
     #[cfg(target_os = "macos")]
     {
         let status = ble_macos::start(app)?;
-        return Ok(MacosPeripheralStatusOut {
+        Ok(MacosPeripheralStatusOut {
             running: status.running,
-        });
+        })
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -77,9 +77,9 @@ fn macos_peripheral_stop() -> Result<MacosPeripheralStatusOut, String> {
     #[cfg(target_os = "macos")]
     {
         let status = ble_macos::stop()?;
-        return Ok(MacosPeripheralStatusOut {
+        Ok(MacosPeripheralStatusOut {
             running: status.running,
-        });
+        })
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -93,9 +93,9 @@ fn macos_peripheral_status() -> MacosPeripheralStatusOut {
     #[cfg(target_os = "macos")]
     {
         let status = ble_macos::status();
-        return MacosPeripheralStatusOut {
+        MacosPeripheralStatusOut {
             running: status.running,
-        };
+        }
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -139,11 +139,11 @@ struct MacosPeripheralStatusOut {
 fn runtime_platform() -> &'static str {
     #[cfg(target_os = "android")]
     {
-        return "android";
+        "android"
     }
     #[cfg(target_os = "macos")]
     {
-        return "macos";
+        "macos"
     }
     #[cfg(not(any(target_os = "android", target_os = "macos")))]
     {

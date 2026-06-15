@@ -51,6 +51,15 @@ pub struct BleState {
     pub connected: Arc<Mutex<HashMap<String, Peripheral>>>,
 }
 
+struct ProtocolContext<'a> {
+    app: &'a AppHandle,
+    node_addr: u16,
+    cache: Arc<Mutex<NetworkCache>>,
+    connected: Arc<Mutex<HashMap<String, Peripheral>>>,
+    incoming_device_id: Option<String>,
+    char_uuid: String,
+}
+
 /// Helper: pega o primeiro adaptador Bluetooth físico da máquina.
 async fn first_adapter(state: &tauri::State<'_, BleState>) -> Result<Adapter, String> {
     let adapters = state.manager.adapters().await.map_err(|e| e.to_string())?;
@@ -445,19 +454,19 @@ pub async fn connect_device(
     let node_addr = state.node_addr;
     let cache_clone = state.cache.clone();
     let connected_clone = state.connected.clone();
-    let sequence_clone = state.sequence.clone();
     tokio::spawn(async move {
         while let Some(n) = notification_stream.next().await {
             let _ = app_clone.emit("mesh-ble-frame", n.value.clone());
             handle_protocol_bytes(
-                &app_clone,
                 &n.value,
-                node_addr,
-                cache_clone.clone(),
-                connected_clone.clone(),
-                sequence_clone.clone(),
-                Some(dev_id.clone()),
-                n.uuid.to_string(),
+                ProtocolContext {
+                    app: &app_clone,
+                    node_addr,
+                    cache: cache_clone.clone(),
+                    connected: connected_clone.clone(),
+                    incoming_device_id: Some(dev_id.clone()),
+                    char_uuid: n.uuid.to_string(),
+                },
             )
             .await;
             let _ = app_clone.emit(
@@ -1011,18 +1020,9 @@ fn emit_mesh_core_frame(app: &AppHandle, frame: &ProtocolFrame, incoming_device_
     );
 }
 
-async fn handle_protocol_bytes(
-    app: &AppHandle,
-    bytes: &[u8],
-    node_addr: u16,
-    cache: Arc<Mutex<NetworkCache>>,
-    connected: Arc<Mutex<HashMap<String, Peripheral>>>,
-    sequence: Arc<Mutex<u32>>,
-    incoming_device_id: Option<String>,
-    char_uuid: String,
-) {
+async fn handle_protocol_bytes(bytes: &[u8], ctx: ProtocolContext<'_>) {
     let frame = {
-        let mut cache = cache.lock().unwrap();
+        let mut cache = ctx.cache.lock().unwrap();
         match protocol::ingest_transport_packet(&mut cache.reassembly_cache, bytes) {
             Ok(Some(frame)) => frame,
             Ok(None) => return,
@@ -1047,42 +1047,23 @@ async fn handle_protocol_bytes(
         );
     }
 
-    process_completed_frame(
-        app,
-        frame,
-        node_addr,
-        cache,
-        connected,
-        sequence,
-        incoming_device_id,
-        char_uuid,
-    )
-    .await;
+    process_completed_frame(frame, ctx).await;
 }
 
-async fn process_completed_frame(
-    app: &AppHandle,
-    frame: ProtocolFrame,
-    node_addr: u16,
-    cache: Arc<Mutex<NetworkCache>>,
-    connected: Arc<Mutex<HashMap<String, Peripheral>>>,
-    _sequence: Arc<Mutex<u32>>,
-    incoming_device_id: Option<String>,
-    char_uuid: String,
-) {
+async fn process_completed_frame(frame: ProtocolFrame, ctx: ProtocolContext<'_>) {
     let original_frame = frame.clone();
     let decision = {
-        let mut cache = cache.lock().unwrap();
-        protocol::process_incoming(&mut cache.relay_cache, node_addr, frame)
+        let mut cache = ctx.cache.lock().unwrap();
+        protocol::process_incoming(&mut cache.relay_cache, ctx.node_addr, frame)
     };
 
     if decision.deliver_locally {
-        emit_protocol_frame(app, original_frame.clone());
-        emit_mesh_core_frame(app, &original_frame, incoming_device_id.as_deref());
+        emit_protocol_frame(ctx.app, original_frame.clone());
+        emit_mesh_core_frame(ctx.app, &original_frame, ctx.incoming_device_id.as_deref());
 
         if original_frame.opcode == protocol::OPCODE_PING {
             let pong = ProtocolFrame {
-                src_addr: node_addr,
+                src_addr: ctx.node_addr,
                 dst_addr: original_frame.src_addr,
                 ttl: 3,
                 sequence_number: original_frame.sequence_number,
@@ -1091,12 +1072,12 @@ async fn process_completed_frame(
                 checksum: 0,
             };
             let packets = protocol::encode_for_ble_transport(&pong);
-            if let Some(device_id) = incoming_device_id.as_ref() {
-                let target = connected.lock().unwrap().get(device_id).cloned();
+            if let Some(device_id) = ctx.incoming_device_id.as_ref() {
+                let target = ctx.connected.lock().unwrap().get(device_id).cloned();
                 if let Some(peripheral) = target {
-                    let _ = write_protocol_packets_to_peripheral(&peripheral, &char_uuid, &packets)
+                    let _ = write_protocol_packets_to_peripheral(&peripheral, &ctx.char_uuid, &packets)
                         .await;
-                    emit_protocol_transport(app, pong.sequence_number, &packets);
+                    emit_protocol_transport(ctx.app, pong.sequence_number, &packets);
                 }
             }
         }
@@ -1107,12 +1088,12 @@ async fn process_completed_frame(
     };
 
     let relay_packets = protocol::encode_for_ble_transport(&relay_frame);
-    let targets: Vec<(String, Peripheral)> = connected
+    let targets: Vec<(String, Peripheral)> = ctx.connected
         .lock()
         .unwrap()
         .iter()
         .filter_map(|(device_id, peripheral)| {
-            if incoming_device_id.as_ref() == Some(device_id) {
+            if ctx.incoming_device_id.as_ref() == Some(device_id) {
                 None
             } else {
                 Some((device_id.clone(), peripheral.clone()))
@@ -1121,11 +1102,11 @@ async fn process_completed_frame(
         .collect();
 
     for (target_device_id, peripheral) in targets {
-        if write_protocol_packets_to_peripheral(&peripheral, &char_uuid, &relay_packets)
+        if write_protocol_packets_to_peripheral(&peripheral, &ctx.char_uuid, &relay_packets)
             .await
             .is_ok()
         {
-            let _ = app.emit(
+            let _ = ctx.app.emit(
                 "protocol-relay",
                 ProtocolRelayPayload {
                     src_addr: relay_frame.src_addr,
@@ -1133,7 +1114,7 @@ async fn process_completed_frame(
                     sequence_number: relay_frame.sequence_number,
                     ttl: relay_frame.ttl,
                     target_device_id,
-                    char_uuid: char_uuid.clone(),
+                    char_uuid: ctx.char_uuid.clone(),
                     bytes_len: relay_packets.iter().map(Vec::len).sum(),
                 },
             );
@@ -1359,7 +1340,7 @@ pub async fn start_hardware_mesh_scan(
                 manufacturer_data, ..
             } = event
             {
-                for (_company_id, bytes) in &manufacturer_data {
+                for bytes in manufacturer_data.values() {
                     if let Ok(incoming_packet) = serde_json::from_slice::<GenericMeshPacket>(bytes)
                     {
                         let is_valid = {
