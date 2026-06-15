@@ -765,6 +765,15 @@ pub async fn send_peripheral_protocol_text(
                 crate::ble_android::send(packet.clone())?;
             }
         }
+
+        emit_protocol_frame(&app, frame);
+        emit_protocol_transport(&app, sequence_number, &packets);
+        Ok(format!(
+            "Sent peripheral protocol frame seq={} packets={} bytes={}",
+            sequence_number,
+            packets.len(),
+            packets.iter().map(Vec::len).sum::<usize>()
+        ))
     }
 
     #[cfg(target_os = "macos")]
@@ -773,6 +782,15 @@ pub async fn send_peripheral_protocol_text(
         for packet in &packets {
             crate::ble_macos::send(packet.clone())?;
         }
+
+        emit_protocol_frame(&app, frame);
+        emit_protocol_transport(&app, sequence_number, &packets);
+        Ok(format!(
+            "Sent peripheral protocol frame seq={} packets={} bytes={}",
+            sequence_number,
+            packets.len(),
+            packets.iter().map(Vec::len).sum::<usize>()
+        ))
     }
 
     #[cfg(not(any(target_os = "android", target_os = "macos")))]
@@ -780,17 +798,10 @@ pub async fn send_peripheral_protocol_text(
         let _ = request;
         let _ = app;
         let _ = packets;
-        return Err("BLE peripheral protocol send is not available on this platform".to_string());
+        let _ = frame;
+        let _ = sequence_number;
+        Err("BLE peripheral protocol send is not available on this platform".to_string())
     }
-
-    emit_protocol_frame(&app, frame);
-    emit_protocol_transport(&app, sequence_number, &packets);
-    Ok(format!(
-        "Sent peripheral protocol frame seq={} packets={} bytes={}",
-        sequence_number,
-        packets.len(),
-        packets.iter().map(Vec::len).sum::<usize>()
-    ))
 }
 
 #[tauri::command]
@@ -857,6 +868,14 @@ pub async fn send_peripheral_core_frame(
         for packet in &packets {
             crate::ble_android::send(packet.clone())?;
         }
+
+        emit_protocol_transport(&app, sequence_number, &packets);
+        Ok(format!(
+            "Sent peripheral mesh core frame seq={} packets={} bytes={}",
+            sequence_number,
+            packets.len(),
+            packets.iter().map(Vec::len).sum::<usize>()
+        ))
     }
 
     #[cfg(target_os = "macos")]
@@ -864,22 +883,23 @@ pub async fn send_peripheral_core_frame(
         for packet in &packets {
             crate::ble_macos::send(packet.clone())?;
         }
+
+        emit_protocol_transport(&app, sequence_number, &packets);
+        Ok(format!(
+            "Sent peripheral mesh core frame seq={} packets={} bytes={}",
+            sequence_number,
+            packets.len(),
+            packets.iter().map(Vec::len).sum::<usize>()
+        ))
     }
 
     #[cfg(not(any(target_os = "android", target_os = "macos")))]
     {
         let _ = app;
         let _ = packets;
-        return Err("BLE peripheral core frames are not available on this platform".to_string());
+        let _ = sequence_number;
+        Err("BLE peripheral core frames are not available on this platform".to_string())
     }
-
-    emit_protocol_transport(&app, sequence_number, &packets);
-    Ok(format!(
-        "Sent peripheral mesh core frame seq={} packets={} bytes={}",
-        sequence_number,
-        packets.len(),
-        packets.iter().map(Vec::len).sum::<usize>()
-    ))
 }
 
 #[tauri::command]
