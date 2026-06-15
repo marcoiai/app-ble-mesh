@@ -44,4 +44,5 @@ jobs:
         with:
           workspaces: src-tauri
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo build --manifest-path src-tauri/Cargo.toml --lib
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
