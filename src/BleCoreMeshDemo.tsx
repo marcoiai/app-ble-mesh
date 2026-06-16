@@ -54,7 +54,6 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const [running, setRunning] = useState(false);
   const [peers, setPeers] = useState<PeerRecord[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [logs, setLogs] = useState<string[]>([]);
   const [text, setText] = useState("radio mesh payload");
   const [rtt, setRtt] = useState<number | null>(null);
   const [lastHello, setLastHello] = useState<string | null>(null);
@@ -64,7 +63,6 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const [visualPeerCount, setVisualPeerCount] = useState(0);
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [chatBusy, setChatBusy] = useState(false);
   const [peerStats, setPeerStats] = useState<Map<string, { rtt: number; path: string[] }>>(new Map());
 
   const isAndroid = runtimePlatform === "android";
@@ -73,7 +71,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const canStart = isAndroid ? peripheralLinkCount > 0 : isPeripheral || Boolean(connectedId && writeUuid);
 
   const log = (line: string) => {
-    setLogs((prev) => [...prev.slice(-7), `${new Date().toLocaleTimeString()} ${line}`]);
+    console.debug(`[mesh-demo] ${line}`);
   };
 
   const showPingToast = (toast: PingToast, hideAfterMs = 0) => {
@@ -159,11 +157,6 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
         setLastPingStatus("ok");
         log(`PING received from ${peer}`);
       }),
-      node.on("chat.direct", (ctx) => {
-        addMessage(ctx.body as ChatMessage);
-        ctx.reply({ ok: true, ts: Date.now() });
-        log(`direct chat from ${rtPeerLabel(ctx.from, node.knownPeers())}`);
-      }),
     ];
 
     runtimeRef.current = { node, chat, unsubs };
@@ -220,30 +213,13 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     return () => unlisten?.();
   }, []);
 
-  const send = async () => {
+  const send = () => {
     const line = text.trim();
     const rt = runtimeRef.current;
-    const peer = peers.find((item) => item.id === selectedPeerId) ?? peers[0];
-    if (!rt || !line || !peer || chatBusy) return;
-    const msg: ChatMessage = {
-      room,
-      from: rt.node.id,
-      label: "You",
-      text: line,
-      ts: Date.now(),
-    };
-    setChatBusy(true);
-    try {
-      await rt.node.request(peer.id, "chat.direct", msg, 4500);
-      addMessage(msg);
-      showPingToast({ text: `Message delivered to ${peer.label}`, tone: "ok" }, 2600);
-      log(`direct encrypted chat delivered to ${peer.label} (${line.length} chars)`);
-    } catch (err) {
-      showPingToast({ text: `Message failed: ${peer.label}`, tone: "bad" }, 3400);
-      log(`direct chat failed to ${peer.label}: ${String(err)}`);
-    } finally {
-      setChatBusy(false);
-    }
+    if (!rt || !line) return;
+    const msg = rt.chat.say(room, line);
+    addMessage({ ...msg, label: "You" });
+    log(`sent encrypted chat frame (${line.length} chars)`);
   };
 
   const ping = async () => {
@@ -333,8 +309,8 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
 
       <div style={row}>
         <input value={text} onChange={(event) => setText(event.target.value)} style={input} />
-        <button onClick={() => void send()} disabled={!running || !selectedPeer || chatBusy} style={button("#23615f")}>
-          {chatBusy ? "Sending..." : selectedPeer ? `Send to ${selectedPeer.label}` : "Send direct"}
+        <button onClick={send} disabled={!running} style={button("#23615f")}>
+          Send chat
         </button>
       </div>
 
@@ -378,20 +354,11 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
           ) : (
             messages.map((msg, index) => (
               <div key={`${msg.ts}-${index}`} style={messageLine(msg.from === runtimeRef.current?.node.id)}>
-                <span style={muted}>{msg.from === runtimeRef.current?.node.id ? "You" : msg.label}</span>
+                <span style={messageMeta}>
+                  {formatMessageTime(msg.ts)} · {msg.from === runtimeRef.current?.node.id ? "You" : msg.label}
+                  {msg.delivery ? ` · ${msg.delivery}` : ""}
+                </span>
                 <span style={messageBody}>{msg.text}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <div style={box}>
-          <strong>Activity</strong>
-          {logs.length === 0 ? (
-            <p style={hint}>Idle.</p>
-          ) : (
-            logs.map((entry) => (
-              <div key={entry} style={monoLine}>
-                {entry}
               </div>
             ))
           )}
@@ -451,6 +418,15 @@ function messageText(msg: ChatMessage): string {
   const text = String(msg.text ?? "").trim();
   if (text) return text;
   return "(empty message)";
+}
+
+function formatMessageTime(ts: number): string {
+  if (!Number.isFinite(ts)) return "--:--:--";
+  return new Date(ts).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 const panel: React.CSSProperties = {
@@ -621,18 +597,16 @@ const messageLine = (own: boolean): React.CSSProperties => ({
   border: `1px solid ${own ? "#bddcff" : "#e2e8f0"}`,
 });
 
+const messageMeta: React.CSSProperties = {
+  color: "#475569",
+  fontSize: 11,
+};
+
 const messageBody: React.CSSProperties = {
   color: "#0f172a",
   fontSize: 13,
   lineHeight: 1.35,
   overflowWrap: "anywhere",
-};
-
-const monoLine: React.CSSProperties = {
-  fontFamily: "monospace",
-  color: "#334155",
-  fontSize: 11,
-  marginTop: 6,
 };
 
 const muted: React.CSSProperties = {

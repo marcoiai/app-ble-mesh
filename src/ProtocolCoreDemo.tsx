@@ -284,7 +284,7 @@ export function ProtocolCoreDemo() {
             messages.map((msg, index) => (
               <div key={`${msg.ts}-${index}`} style={messageLine}>
                 <span style={messageMeta}>
-                  {msg.receiver} received {msg.label}
+                  {formatMessageTime(msg.ts)} · {msg.receiver} received {msg.label}
                 </span>
                 <span>{msg.text}</span>
               </div>
@@ -336,6 +336,15 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function formatMessageTime(ts: number): string {
+  if (!Number.isFinite(ts)) return "--:--:--";
+  return new Date(ts).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 const panel: React.CSSProperties = {

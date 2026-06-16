@@ -1,6 +1,8 @@
-# Tauri + React + Typescript
+# Vamos mudar o mundo comigo?
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+## Tauri + React + Typescript + Rust
+A stark principal usa Rust como Base, React pra qualquer UI
+
 
 ## Recommended IDE Setup
 
