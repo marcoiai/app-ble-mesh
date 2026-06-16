@@ -283,10 +283,9 @@ export function ProtocolCoreDemo() {
           ) : (
             messages.map((msg, index) => (
               <div key={`${msg.ts}-${index}`} style={messageLine}>
-                <div style={messageMeta}>
-                  <span>{msg.receiver} received {msg.label}</span>
-                  <span>{formatMessageTime(msg.ts)}</span>
-                </div>
+                <span style={messageMeta}>
+                  {formatMessageTime(msg.ts)} · {msg.receiver} received {msg.label}
+                </span>
                 <span>{msg.text}</span>
               </div>
             ))
@@ -527,9 +526,6 @@ const messageLine: React.CSSProperties = {
 };
 
 const messageMeta: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 8,
   color: "#687586",
   fontSize: 11,
 };

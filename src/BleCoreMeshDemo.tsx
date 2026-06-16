@@ -362,10 +362,9 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
           ) : (
             messages.map((msg, index) => (
               <div key={`${msg.ts}-${index}`} style={messageLine(msg.from === runtimeRef.current?.node.id)}>
-                <div style={messageMeta}>
-                  <span>{msg.from === runtimeRef.current?.node.id ? "You" : msg.label}</span>
-                  <span>{formatMessageTime(msg.ts)}</span>
-                </div>
+                <span style={messageMeta}>
+                  {formatMessageTime(msg.ts)} · {msg.from === runtimeRef.current?.node.id ? "You" : msg.label}
+                </span>
                 <span style={messageBody}>{msg.text}</span>
               </div>
             ))
@@ -618,9 +617,6 @@ const messageLine = (own: boolean): React.CSSProperties => ({
 });
 
 const messageMeta: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 8,
   color: "#475569",
   fontSize: 11,
 };
