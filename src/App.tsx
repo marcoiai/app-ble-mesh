@@ -1015,31 +1015,6 @@ function App() {
         <summary style={summaryStyle}>LevelPack benchmark</summary>
         {levelPackOpen && <LevelPackBench />}
       </details>
-
-      {/* Log de tráfego */}
-      <details style={detailsBox}>
-        <summary style={summaryStyle}>Traffic log ({logs.length})</summary>
-        <div
-          ref={logRef}
-          style={{
-            textAlign: "left",
-            background: "#111",
-            color: "#00ff00",
-            padding: 12,
-            borderRadius: 8,
-            height: 220,
-            overflowY: "auto",
-            fontFamily: "monospace",
-            fontSize: 12,
-            marginTop: 10,
-          }}
-        >
-          {logs.length === 0 && <span style={{ color: "#444" }}>Idle...</span>}
-          {logs.map((l, i) => (
-            <div key={i}>{l}</div>
-          ))}
-        </div>
-      </details>
     </main>
   );
 }
