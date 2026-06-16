@@ -217,15 +217,8 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     const line = text.trim();
     const rt = runtimeRef.current;
     if (!rt || !line) return;
-    const msg: ChatMessage = {
-      room,
-      from: rt.node.id,
-      label: "You",
-      text: line,
-      ts: Date.now(),
-    };
-    addMessage(msg);
-    rt.chat.say(room, line);
+    const msg = rt.chat.say(room, line);
+    addMessage({ ...msg, label: "You" });
     log(`sent encrypted chat frame (${line.length} chars)`);
   };
 
@@ -363,6 +356,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
               <div key={`${msg.ts}-${index}`} style={messageLine(msg.from === runtimeRef.current?.node.id)}>
                 <span style={messageMeta}>
                   {formatMessageTime(msg.ts)} · {msg.from === runtimeRef.current?.node.id ? "You" : msg.label}
+                  {msg.delivery ? ` · ${msg.delivery}` : ""}
                 </span>
                 <span style={messageBody}>{msg.text}</span>
               </div>
