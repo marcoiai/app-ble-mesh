@@ -42,6 +42,7 @@ type Runtime = {
 const room = "radio-demo";
 const secret = "levelup-offgrid";
 const OPCODE_CORE_FRAME = 16;
+const DEVICE_ID_KEY = "app-ble-mesh.deviceId";
 const DEVICE_LABEL_KEY = "app-ble-mesh.deviceLabel";
 const MESH_TICK_MS = 4000;
 type PingToast = { text: string; tone: "wait" | "ok" | "bad" };
@@ -120,8 +121,10 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     await stop();
     if (!canStart) return;
 
+    const identity = localMeshIdentity(runtimePlatform);
     const node = new MeshNode({
-      label: localMeshLabel(runtimePlatform),
+      id: identity.id,
+      label: identity.label,
       caps: ["ble", "chat", "ping"],
       heartbeatMs: MESH_TICK_MS,
       defaultTtl: 6,
@@ -417,18 +420,29 @@ function rtPeerLabel(id: string, peers: PeerRecord[]): string {
   return peers.find((peer) => peer.id === id)?.label ?? shortNode(id);
 }
 
-function localMeshLabel(runtimePlatform: string): string {
-  if (typeof window === "undefined") {
-    return runtimePlatform === "android" ? "Android radio" : "Mac radio";
-  }
-  const saved = window.localStorage.getItem(DEVICE_LABEL_KEY);
-  if (saved) return saved;
-
+function localMeshIdentity(runtimePlatform: string): { id: string; label: string } {
   const platform = runtimePlatform === "android" ? "Droid" : runtimePlatform === "macos" ? "Mac" : "Desktop";
-  const suffix = globalThis.crypto.randomUUID().slice(0, 4).toUpperCase();
-  const label = `${platform}-${suffix}`;
-  window.localStorage.setItem(DEVICE_LABEL_KEY, label);
-  return label;
+
+  if (typeof window === "undefined") {
+    return {
+      id: `${platform.toLowerCase()}-radio`,
+      label: `${platform} radio`,
+    };
+  }
+
+  const savedId = window.localStorage.getItem(DEVICE_ID_KEY);
+  const id = savedId ?? globalThis.crypto.randomUUID().replace(/-/g, "");
+  if (!savedId) {
+    window.localStorage.setItem(DEVICE_ID_KEY, id);
+  }
+
+  const savedLabel = window.localStorage.getItem(DEVICE_LABEL_KEY);
+  const label = savedLabel ?? `${platform}-${id.slice(0, 4).toUpperCase()}`;
+  if (!savedLabel) {
+    window.localStorage.setItem(DEVICE_LABEL_KEY, label);
+  }
+
+  return { id, label };
 }
 
 function StatusTile({ label, value, tone, active = false }: { label: string; value: string; tone: "ok" | "wait" | "bad"; active?: boolean }) {
