@@ -54,7 +54,6 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const [running, setRunning] = useState(false);
   const [peers, setPeers] = useState<PeerRecord[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [logs, setLogs] = useState<string[]>([]);
   const [text, setText] = useState("radio mesh payload");
   const [rtt, setRtt] = useState<number | null>(null);
   const [lastHello, setLastHello] = useState<string | null>(null);
@@ -72,7 +71,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const canStart = isAndroid ? peripheralLinkCount > 0 : isPeripheral || Boolean(connectedId && writeUuid);
 
   const log = (line: string) => {
-    setLogs((prev) => [...prev.slice(-7), `${new Date().toLocaleTimeString()} ${line}`]);
+    console.debug(`[mesh-demo] ${line}`);
   };
 
   const showPingToast = (toast: PingToast, hideAfterMs = 0) => {
@@ -370,18 +369,6 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
             ))
           )}
         </div>
-        <div style={box}>
-          <strong>Activity</strong>
-          {logs.length === 0 ? (
-            <p style={hint}>Idle.</p>
-          ) : (
-            logs.map((entry) => (
-              <div key={entry} style={monoLine}>
-                {entry}
-              </div>
-            ))
-          )}
-        </div>
       </div>
     </section>
   );
@@ -626,13 +613,6 @@ const messageBody: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.35,
   overflowWrap: "anywhere",
-};
-
-const monoLine: React.CSSProperties = {
-  fontFamily: "monospace",
-  color: "#334155",
-  fontSize: 11,
-  marginTop: 6,
 };
 
 const muted: React.CSSProperties = {
