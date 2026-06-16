@@ -1,7 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { MeshNode, chatService, type ChatApi, type ChatMessage, type PeerRecord } from "./mesh-core";
+import { MeshNode, chatService, generateNodeId, type ChatApi, type ChatMessage, type PeerRecord } from "./mesh-core";
 import { BleTransport } from "./mesh-adapters";
+
+// Nick ESTÁVEL e ÚNICO por device: gera uma vez e persiste. Sem isso, cada boot vira
+// um id novo → os outros acham que é "um cara novo" e ficam reescaneando/reconectando.
+function stableNodeId(): string {
+  const KEY = "mesh.node.id";
+  try {
+    let id = window.localStorage.getItem(KEY);
+    if (!id) {
+      id = generateNodeId();
+      window.localStorage.setItem(KEY, id);
+    }
+    return id;
+  } catch {
+    return generateNodeId();
+  }
+}
 
 interface BleCoreMeshDemoProps {
   runtimePlatform: string;
@@ -110,8 +126,11 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     await stop();
     if (!canStart) return;
 
+    const id = stableNodeId();
+    const platform = isAndroid ? "Android radio" : isMacPeripheral ? "Mac radio" : "Desktop radio";
     const node = new MeshNode({
-      label: isAndroid ? "Android radio" : isMacPeripheral ? "Mac radio" : "Desktop radio",
+      id,
+      label: `${platform} ${id.slice(-6)}`,
       caps: ["ble", "chat", "ping"],
       heartbeatMs: 5000,
       defaultTtl: 6,
