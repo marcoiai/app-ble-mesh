@@ -1,19 +1,19 @@
-// ── BLE / native byte-pipe transport ────────────────────────────────────────
-// Mirrors the working Levelup contract: native BLE only moves opaque byte
-// chunks and emits `mesh-ble-frame`; TypeScript owns presence, chunking,
-// peer ids, routing, encryption, and delivery.
+// Tauri BLE adapter.
+// This is intentionally outside mesh-core: it knows about Tauri commands/events,
+// BLE chunking, radio restart, and native runtime quirks. The protocol only sees
+// the Transport interface.
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { Emitter } from '../emitter.ts';
-import type { Transport, TransportEvents } from '../transport.ts';
+import { Emitter } from '../mesh-core/mesh/emitter.ts';
+import type { Transport, TransportEvents } from '../mesh-core/mesh/transport.ts';
 
 type Wire =
   | { t: 'frame'; from: string; to?: string; data: string }
   | { t: 'present'; from: string }
   | { t: 'bye'; from: string };
 
-export interface BleOptions {
+export interface TauriBleOptions {
   peerId?: string;
   presenceMs?: number;
   peerTimeoutMs?: number;
@@ -37,8 +37,8 @@ function b64ToFrame(b64: string): Uint8Array {
   return out;
 }
 
-export class BleTransport extends Emitter<TransportEvents> implements Transport {
-  readonly name = 'ble';
+export class TauriBleTransport extends Emitter<TransportEvents> implements Transport {
+  readonly name = 'tauri-ble';
   readonly peerId: string;
   private peers = new Map<string, number>();
   private presenceMs: number;
@@ -50,7 +50,7 @@ export class BleTransport extends Emitter<TransportEvents> implements Transport 
   private chunkPayload = 16;
   private restarting = false;
 
-  constructor(opts: BleOptions = {}) {
+  constructor(opts: TauriBleOptions = {}) {
     super();
     this.peerId = opts.peerId ?? globalThis.crypto.randomUUID();
     this.presenceMs = opts.presenceMs ?? 1800;
@@ -158,9 +158,8 @@ export class BleTransport extends Emitter<TransportEvents> implements Transport 
     if (!msg || msg.from === this.peerId) return;
     this.touch(msg.from);
     if (msg.t === 'frame') {
-      // Do not filter by the transport-level target here. BLE peripheral mode is
-      // effectively a tiny shared bus: a relay node must be able to receive a
-      // frame even when the final mesh destination is someone else.
+      // BLE peripheral mode behaves like a tiny shared bus: a relay node must
+      // receive frames even when the final mesh destination is another node.
       this.emit('frame', { from: msg.from, frame: b64ToFrame(msg.data) });
     } else if (msg.t === 'bye') {
       if (this.peers.delete(msg.from)) this.emit('peerDown', { peer: msg.from });
@@ -233,3 +232,6 @@ export class BleTransport extends Emitter<TransportEvents> implements Transport 
     }
   }
 }
+
+export { TauriBleTransport as BleTransport };
+export type { TauriBleOptions as BleOptions };

@@ -8,8 +8,6 @@ export { encode, decode } from './mesh/codec.ts';
 
 export type { Transport, TransportEvents } from './mesh/transport.ts';
 export { LoopbackHub, LoopbackTransport } from './mesh/transports/loopback.ts';
-export { BleTransport } from './mesh/transports/ble.ts';
-export type { BleOptions } from './mesh/transports/ble.ts';
 export { BroadcastChannelTransport, broadcastChannelSupported } from './mesh/transports/broadcast-channel.ts';
 export type { BroadcastChannelOptions } from './mesh/transports/broadcast-channel.ts';
 

@@ -1,13 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import {
-  BleTransport,
-  MeshNode,
-  chatService,
-  type ChatApi,
-  type ChatMessage,
-  type PeerRecord,
-} from "./mesh-core";
+import { MeshNode, chatService, type ChatApi, type ChatMessage, type PeerRecord } from "./mesh-core";
+import { BleTransport } from "./mesh-adapters";
 
 interface BleCoreMeshDemoProps {
   runtimePlatform: string;

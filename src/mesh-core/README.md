@@ -16,7 +16,7 @@ Core responsibilities:
 - optional encryption/authentication
 - service payloads such as chat, game, stream, trade, and access-point control
 
-Carrier responsibilities:
+Adapter responsibilities:
 
 - discover nearby peers
 - open links
@@ -28,8 +28,9 @@ Carrier responsibilities:
 
 Use `src/mesh-core/index.ts` as the public protocol surface.
 
-The existing BLE proof app can keep its native BLE carrier in `src-tauri`; the next step is to
-adapt that carrier so received BLE frames feed a `MeshNode` instead of a demo-specific ping path.
+Use `src/mesh-adapters/index.ts` for runtime-specific carriers such as Tauri BLE.
+Those adapters may depend on Tauri, Android, macOS, Wi-Fi Direct, LAN, WebRTC, or native helpers;
+`mesh-core` must not.
 
 ## Protocol Notes
 
