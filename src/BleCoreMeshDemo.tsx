@@ -64,7 +64,6 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const [visualPeerCount, setVisualPeerCount] = useState(0);
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [chatBusy, setChatBusy] = useState(false);
   const [peerStats, setPeerStats] = useState<Map<string, { rtt: number; path: string[] }>>(new Map());
 
   const isAndroid = runtimePlatform === "android";
@@ -159,11 +158,6 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
         setLastPingStatus("ok");
         log(`PING received from ${peer}`);
       }),
-      node.on("chat.direct", (ctx) => {
-        addMessage(ctx.body as ChatMessage);
-        ctx.reply({ ok: true, ts: Date.now() });
-        log(`direct chat from ${rtPeerLabel(ctx.from, node.knownPeers())}`);
-      }),
     ];
 
     runtimeRef.current = { node, chat, unsubs };
@@ -220,11 +214,10 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     return () => unlisten?.();
   }, []);
 
-  const send = async () => {
+  const send = () => {
     const line = text.trim();
     const rt = runtimeRef.current;
-    const peer = peers.find((item) => item.id === selectedPeerId) ?? peers[0];
-    if (!rt || !line || !peer || chatBusy) return;
+    if (!rt || !line) return;
     const msg: ChatMessage = {
       room,
       from: rt.node.id,
@@ -232,18 +225,9 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
       text: line,
       ts: Date.now(),
     };
-    setChatBusy(true);
-    try {
-      await rt.node.request(peer.id, "chat.direct", msg, 4500);
-      addMessage(msg);
-      showPingToast({ text: `Message delivered to ${peer.label}`, tone: "ok" }, 2600);
-      log(`direct encrypted chat delivered to ${peer.label} (${line.length} chars)`);
-    } catch (err) {
-      showPingToast({ text: `Message failed: ${peer.label}`, tone: "bad" }, 3400);
-      log(`direct chat failed to ${peer.label}: ${String(err)}`);
-    } finally {
-      setChatBusy(false);
-    }
+    addMessage(msg);
+    rt.chat.say(room, line);
+    log(`sent encrypted chat frame (${line.length} chars)`);
   };
 
   const ping = async () => {
@@ -333,8 +317,8 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
 
       <div style={row}>
         <input value={text} onChange={(event) => setText(event.target.value)} style={input} />
-        <button onClick={() => void send()} disabled={!running || !selectedPeer || chatBusy} style={button("#23615f")}>
-          {chatBusy ? "Sending..." : selectedPeer ? `Send to ${selectedPeer.label}` : "Send direct"}
+        <button onClick={send} disabled={!running} style={button("#23615f")}>
+          Send chat
         </button>
       </div>
 
@@ -378,7 +362,10 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
           ) : (
             messages.map((msg, index) => (
               <div key={`${msg.ts}-${index}`} style={messageLine(msg.from === runtimeRef.current?.node.id)}>
-                <span style={muted}>{msg.from === runtimeRef.current?.node.id ? "You" : msg.label}</span>
+                <div style={messageMeta}>
+                  <span>{msg.from === runtimeRef.current?.node.id ? "You" : msg.label}</span>
+                  <span>{formatMessageTime(msg.ts)}</span>
+                </div>
                 <span style={messageBody}>{msg.text}</span>
               </div>
             ))
@@ -451,6 +438,15 @@ function messageText(msg: ChatMessage): string {
   const text = String(msg.text ?? "").trim();
   if (text) return text;
   return "(empty message)";
+}
+
+function formatMessageTime(ts: number): string {
+  if (!Number.isFinite(ts)) return "--:--:--";
+  return new Date(ts).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 const panel: React.CSSProperties = {
@@ -620,6 +616,14 @@ const messageLine = (own: boolean): React.CSSProperties => ({
   background: own ? "#eef7ff" : "#f4f7fa",
   border: `1px solid ${own ? "#bddcff" : "#e2e8f0"}`,
 });
+
+const messageMeta: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 8,
+  color: "#475569",
+  fontSize: 11,
+};
 
 const messageBody: React.CSSProperties = {
   color: "#0f172a",
