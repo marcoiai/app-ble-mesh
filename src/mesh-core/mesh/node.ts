@@ -37,6 +37,10 @@ export type MeshNodeEvents = {
   'peer:update': PeerRecord;
   'peer:leave': PeerRecord;
   message: MessageContext;
+  'request:sent': { corr: string; to: NodeId; type: string; timeoutMs: number };
+  'request:reply': { corr: string; from: NodeId; type: string; elapsedMs: number };
+  'request:timeout': { corr: string; to: NodeId; type: string; timeoutMs: number; elapsedMs: number };
+  'request:late-reply': { corr: string; from: NodeId; type: string; elapsedMs?: number; lateByMs?: number };
 };
 
 export interface MeshNodeOptions extends IdentityOptions {
@@ -94,6 +98,17 @@ interface PendingRequest {
   resolve: (body: unknown) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  startedAt: number;
+  to: NodeId;
+  type: string;
+  timeoutMs: number;
+}
+
+interface TimedOutRequest {
+  startedAt: number;
+  to: NodeId;
+  type: string;
+  timeoutMs: number;
 }
 
 export class MeshNode {
@@ -109,6 +124,7 @@ export class MeshNode {
   private handlers = new Map<string, Set<MessageHandler>>();
   private channels = new Map<string, Set<MessageHandler>>();
   private pending = new Map<string, PendingRequest>();
+  private timedOut = new Map<string, TimedOutRequest>();
   private peers = new Map<NodeId, PeerRecord>();
   private services = new Map<string, unknown>();
   private serviceObjects: MeshService[] = [];
@@ -238,6 +254,7 @@ export class MeshNode {
       p.reject(new Error('mesh: node stopped'));
     });
     this.pending.clear();
+    this.timedOut.clear();
     this.events.emit('stopped', undefined);
   }
 
@@ -311,12 +328,24 @@ export class MeshNode {
   /** Request/reply across the mesh. Resolves with the reply body, or rejects on timeout. */
   request(to: NodeId, type: string, body: unknown, timeoutMs = 8000): Promise<unknown> {
     const corr = globalThis.crypto.randomUUID();
+    const startedAt = Date.now();
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
+        const pending = this.pending.get(corr);
+        if (!pending) return;
         this.pending.delete(corr);
+        this.rememberTimedOut(corr, pending);
+        this.events.emit('request:timeout', {
+          corr,
+          to,
+          type,
+          timeoutMs,
+          elapsedMs: Date.now() - startedAt,
+        });
         reject(new Error(`mesh: request "${type}" to ${to} timed out`));
       }, timeoutMs);
-      this.pending.set(corr, { resolve, reject, timer });
+      this.pending.set(corr, { resolve, reject, timer, startedAt, to, type, timeoutMs });
+      this.events.emit('request:sent', { corr, to, type, timeoutMs });
       this.originate({ to, type, body, corr });
     });
   }
@@ -449,7 +478,32 @@ export class MeshNode {
       if (pending) {
         clearTimeout(pending.timer);
         this.pending.delete(env.corr);
+        this.events.emit('request:reply', {
+          corr: env.corr,
+          from: env.from,
+          type: env.type,
+          elapsedMs: Date.now() - pending.startedAt,
+        });
         pending.resolve(env.body);
+      } else {
+        const timedOut = this.timedOut.get(env.corr);
+        if (timedOut) {
+          const elapsedMs = Date.now() - timedOut.startedAt;
+          this.timedOut.delete(env.corr);
+          this.events.emit('request:late-reply', {
+            corr: env.corr,
+            from: env.from,
+            type: env.type,
+            elapsedMs,
+            lateByMs: Math.max(0, elapsedMs - timedOut.timeoutMs),
+          });
+        } else {
+          this.events.emit('request:late-reply', {
+            corr: env.corr,
+            from: env.from,
+            type: env.type,
+          });
+        }
       }
       return;
     }
@@ -475,6 +529,17 @@ export class MeshNode {
     // Gossip our direct neighbours alongside identity so peers can build route graphs.
     const body = { ...this.info, neighbors: this.neighbors() };
     this.originate({ to: null, type: HELLO, body, ttl: this.discoveryTtl });
+  }
+
+  private rememberTimedOut(corr: string, pending: PendingRequest): void {
+    const record: TimedOutRequest = {
+      startedAt: pending.startedAt,
+      to: pending.to,
+      type: pending.type,
+      timeoutMs: pending.timeoutMs,
+    };
+    this.timedOut.set(corr, record);
+    setTimeout(() => this.timedOut.delete(corr), Math.max(15000, pending.timeoutMs * 4));
   }
 
   /** Farewell on graceful exit: tell the mesh we're leaving + hand off our neighbours. */

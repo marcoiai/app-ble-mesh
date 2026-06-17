@@ -6,7 +6,7 @@ use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex}; // Arc para compartilhamento seguro entre threads
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use crate::protocol::{self, ProtocolFrame, ProtocolNodeInfo};
@@ -907,6 +907,8 @@ pub async fn mesh_ble_send(
     data: Vec<u8>,
     state: tauri::State<'_, BleState>,
 ) -> Result<String, String> {
+    let started = Instant::now();
+    let bytes_len = data.len();
     let mut sent = 0usize;
     let mut errors: Vec<String> = Vec::new();
 
@@ -931,12 +933,20 @@ pub async fn mesh_ble_send(
     }
 
     if sent > 0 {
-        Ok(format!("Sent BLE byte chunk to {sent} path(s)"))
+        Ok(format!(
+            "Sent BLE byte chunk to {sent} path(s) in {}ms",
+            started.elapsed().as_millis()
+        ))
     } else {
         Err(if errors.is_empty() {
             "No BLE path is ready".to_string()
         } else {
-            errors.join("; ")
+            format!(
+                "{} ({} byte chunk, {}ms)",
+                errors.join("; "),
+                bytes_len,
+                started.elapsed().as_millis()
+            )
         })
     }
 }

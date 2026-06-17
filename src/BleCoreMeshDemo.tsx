@@ -48,6 +48,8 @@ const OPCODE_CORE_FRAME = 16;
 const DEVICE_ID_KEY = "app-ble-mesh.deviceId";
 const DEVICE_LABEL_KEY = "app-ble-mesh.deviceLabel";
 const MESH_TICK_MS = 4000;
+const PING_TIMEOUT_MS = 3500;
+const CHAT_DIRECT_TIMEOUT_MS = 4500;
 type PingToast = { text: string; tone: "wait" | "ok" | "bad" };
 
 export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCount, writeUuid, macAdvertise }: BleCoreMeshDemoProps) {
@@ -55,10 +57,10 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const lastVisualHelloId = useRef<string | null>(null);
   const lastPrivateFrameAt = useRef(0);
   const pingToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingChatRef = useRef<{ peerId: string; peerLabel: string; msg: ChatMessage } | null>(null);
   const [running, setRunning] = useState(false);
   const [peers, setPeers] = useState<PeerRecord[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [logs, setLogs] = useState<string[]>([]);
   const [text, setText] = useState("radio mesh payload");
   const [rtt, setRtt] = useState<number | null>(null);
   const [lastHello, setLastHello] = useState<string | null>(null);
@@ -77,7 +79,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
   const canStart = isAndroid ? peripheralLinkCount > 0 : isPeripheral || Boolean(connectedId && writeUuid);
 
   const log = (line: string) => {
-    setLogs((prev) => [...prev.slice(-7), `${new Date().toLocaleTimeString()} ${line}`]);
+    console.debug(`[mesh demo] ${new Date().toLocaleTimeString()} ${line}`);
   };
 
   const showPingToast = (toast: PingToast, hideAfterMs = 0) => {
@@ -102,7 +104,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     const rt = runtimeRef.current;
     if (!rt) return;
     const nextPeers = rt.node.knownPeers();
-    setPeers(nextPeers);
+    setPeers((current) => (samePeerList(current, nextPeers) ? current : nextPeers));
     setSelectedPeerId((current) => {
       if (current && nextPeers.some((peer) => peer.id === current)) return current;
       return nextPeers[0]?.id ?? null;
@@ -170,6 +172,36 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
         ctx.reply({ ok: true, ts: Date.now() });
         log(`direct chat from ${rtPeerLabel(ctx.from, node.knownPeers())}`);
       }),
+      node.events.on("request:reply", (event) => {
+        log(`request ${event.type} reply from ${rtPeerLabel(event.from, node.knownPeers())}: ${event.elapsedMs}ms`);
+      }),
+      node.events.on("request:timeout", (event) => {
+        const peer = rtPeerLabel(event.to, node.knownPeers());
+        log(`request ${event.type} timeout to ${peer}: ${event.elapsedMs}ms`);
+        if (event.type === "mesh.ping") {
+          setPingNotice(`Ping timed out at ${event.elapsedMs}ms; still listening`);
+        }
+      }),
+      node.events.on("request:late-reply", (event) => {
+        const peer = rtPeerLabel(event.from, node.knownPeers());
+        const elapsed = event.elapsedMs == null ? "after timeout" : `${event.elapsedMs}ms`;
+        const late = event.lateByMs == null ? "" : ` (+${event.lateByMs}ms)`;
+        log(`late reply ${event.type} from ${peer}: ${elapsed}${late}`);
+
+        if (event.type === "mesh.ping") {
+          setRtt(event.elapsedMs ?? null);
+          setLastPingStatus("ok");
+          setPingNotice(`Late ping reply from ${peer}: ${elapsed}${late}`);
+          showPingToast({ text: `Late ping reply: ${elapsed}`, tone: "ok" }, 3200);
+        }
+
+        const pendingChat = pendingChatRef.current;
+        if (event.type === "chat.direct" && pendingChat?.peerId === event.from) {
+          addMessage(pendingChat.msg);
+          pendingChatRef.current = null;
+          showPingToast({ text: `Message delivered late to ${pendingChat.peerLabel}`, tone: "ok" }, 3200);
+        }
+      }),
     ];
 
     runtimeRef.current = { node, chat, unsubs };
@@ -234,19 +266,27 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     const msg: ChatMessage = {
       room,
       from: rt.node.id,
-      label: "You",
+      label: rt.node.info.label,
       text: line,
       ts: Date.now(),
     };
     setChatBusy(true);
+    pendingChatRef.current = { peerId: peer.id, peerLabel: peer.label, msg };
     try {
-      await rt.node.request(peer.id, "chat.direct", msg, 4500);
+      await rt.node.request(peer.id, "chat.direct", msg, CHAT_DIRECT_TIMEOUT_MS);
       addMessage(msg);
+      pendingChatRef.current = null;
       showPingToast({ text: `Message delivered to ${peer.label}`, tone: "ok" }, 2600);
       log(`direct encrypted chat delivered to ${peer.label} (${line.length} chars)`);
     } catch (err) {
       showPingToast({ text: `Message failed: ${peer.label}`, tone: "bad" }, 3400);
       log(`direct chat failed to ${peer.label}: ${String(err)}`);
+      const failedChat = pendingChatRef.current;
+      setTimeout(() => {
+        if (pendingChatRef.current?.msg.ts === failedChat?.msg.ts) {
+          pendingChatRef.current = null;
+        }
+      }, 15000);
     } finally {
       setChatBusy(false);
     }
@@ -265,7 +305,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     setPingNotice("Sending ping...");
     showPingToast({ text: `Pinging ${peer.label}...`, tone: "wait" });
     try {
-      const { rtt: ms, fwdPath } = await rt.node.ping(peer.id, 3500);
+      const { rtt: ms, fwdPath } = await rt.node.ping(peer.id, PING_TIMEOUT_MS);
       setRtt(ms);
       setLastPingStatus("ok");
       setPingNotice(`Ping worked (${ms}ms)`);
@@ -275,8 +315,8 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
       log(`ping ${peer.label}: ${ms}ms${pathStr}`);
     } catch (err) {
       setLastPingStatus("fail");
-      setPingNotice("Ping timed out");
-      showPingToast({ text: "Ping timed out", tone: "bad" }, 3600);
+      setPingNotice(`Ping timed out after ${PING_TIMEOUT_MS}ms; still listening`);
+      showPingToast({ text: `Ping timed out after ${PING_TIMEOUT_MS}ms`, tone: "bad" }, 3600);
       log(`ping failed: ${String(err)}`);
     } finally {
       setBusy(false);
@@ -384,20 +424,8 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
           ) : (
             messages.map((msg, index) => (
               <div key={`${msg.ts}-${index}`} style={messageLine(msg.from === runtimeRef.current?.node.id)}>
-                <span style={muted}>{msg.from === runtimeRef.current?.node.id ? "You" : msg.label}</span>
+                <span style={muted}>{messageMeta(msg, runtimeRef.current?.node.id)}</span>
                 <span style={messageBody}>{msg.text}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <div style={box}>
-          <strong>Activity</strong>
-          {logs.length === 0 ? (
-            <p style={hint}>Idle.</p>
-          ) : (
-            logs.map((entry) => (
-              <div key={entry} style={monoLine}>
-                {entry}
               </div>
             ))
           )}
@@ -405,6 +433,32 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
       </div>
     </section>
   );
+}
+
+function samePeerList(a: PeerRecord[], b: PeerRecord[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((peer, index) => {
+    const next = b[index];
+    return Boolean(next)
+      && peer.id === next.id
+      && peer.label === next.label
+      && peer.via === next.via
+      && peer.hops === next.hops
+      && peer.direct === next.direct
+      && peer.caps.join(",") === next.caps.join(",")
+      && peer.neighbors.join(",") === next.neighbors.join(",");
+  });
+}
+
+function messageMeta(msg: ChatMessage, localId: string | undefined): string {
+  const who = msg.from === localId ? "You" : msg.label;
+  return `${formatMessageTime(msg.ts)} · ${who}`;
+}
+
+function formatMessageTime(ts: number): string {
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return "--:--";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function pathLabels(path: string[], localId: string | undefined, peers: PeerRecord[]): string[] {
@@ -666,13 +720,6 @@ const messageBody: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.35,
   overflowWrap: "anywhere",
-};
-
-const monoLine: React.CSSProperties = {
-  fontFamily: "monospace",
-  color: "#334155",
-  fontSize: 11,
-  marginTop: 6,
 };
 
 const muted: React.CSSProperties = {

@@ -51,6 +51,7 @@ export class BleTransport extends Emitter<TransportEvents> implements Transport 
   private rxbuf = new Map<number, { total: number; parts: Map<number, Uint8Array>; ts: number }>();
   private chunkPayload = 16;
   private restarting = false;
+  private sendQueue: Promise<void> = Promise.resolve();
 
   constructor(opts: BleOptions = {}) {
     super();
@@ -201,13 +202,20 @@ export class BleTransport extends Emitter<TransportEvents> implements Transport 
       chunk[2] = i;
       chunk[3] = total;
       chunk.set(slice, 4);
-      void this.trySend(chunk);
+      this.sendQueue = this.sendQueue
+        .catch(() => undefined)
+        .then(() => this.trySend(chunk));
     }
   }
 
   private async trySend(chunk: Uint8Array, retried = false): Promise<void> {
     try {
-      await invoke('mesh_ble_send', { data: Array.from(chunk) });
+      const started = performance.now();
+      const result = await invoke<string>('mesh_ble_send', { data: Array.from(chunk) });
+      const elapsedMs = Math.round(performance.now() - started);
+      if (elapsedMs > 80) {
+        console.debug(`[mesh ble] ${result}; js=${elapsedMs}ms bytes=${chunk.length}`);
+      }
     } catch (err) {
       const text = String(err);
       const recoverable =
