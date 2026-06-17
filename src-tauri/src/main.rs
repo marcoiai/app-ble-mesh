@@ -7,6 +7,7 @@ mod ble;
 mod ble_android;
 #[cfg(target_os = "macos")]
 mod ble_macos;
+mod identity;
 mod protocol;
 
 #[tauri::command]
@@ -181,6 +182,8 @@ async fn main() {
             ble::peripheral_connected_device_ids,
             // Captura legada de advertisements (somente RX)
             ble::start_hardware_mesh_scan,
+            identity::load_mesh_identity,
+            identity::save_mesh_identity,
             macos_peripheral_start,
             macos_peripheral_stop,
             macos_peripheral_status,

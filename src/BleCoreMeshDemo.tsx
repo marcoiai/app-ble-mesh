@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   BleTransport,
@@ -38,6 +39,8 @@ type Runtime = {
   chat: ChatApi;
   unsubs: Array<() => void>;
 };
+
+type MeshIdentity = { id: string; label: string };
 
 const room = "radio-demo";
 const secret = "levelup-offgrid";
@@ -121,7 +124,7 @@ export function BleCoreMeshDemo({ runtimePlatform, connectedId, peripheralLinkCo
     await stop();
     if (!canStart) return;
 
-    const identity = localMeshIdentity(runtimePlatform);
+    const identity = await nativeMeshIdentity(runtimePlatform);
     const node = new MeshNode({
       id: identity.id,
       label: identity.label,
@@ -420,7 +423,24 @@ function rtPeerLabel(id: string, peers: PeerRecord[]): string {
   return peers.find((peer) => peer.id === id)?.label ?? shortNode(id);
 }
 
-function localMeshIdentity(runtimePlatform: string): { id: string; label: string } {
+async function nativeMeshIdentity(runtimePlatform: string): Promise<MeshIdentity> {
+  const fallback = localMeshIdentity(runtimePlatform);
+
+  try {
+    const native = await invoke<MeshIdentity | null>("load_mesh_identity");
+    if (native?.id && native.label) {
+      rememberLocalMeshIdentity(native);
+      return native;
+    }
+    const saved = await invoke<MeshIdentity>("save_mesh_identity", { identity: fallback });
+    rememberLocalMeshIdentity(saved);
+    return saved;
+  } catch {
+    return fallback;
+  }
+}
+
+function localMeshIdentity(runtimePlatform: string): MeshIdentity {
   const platform = runtimePlatform === "android" ? "Droid" : runtimePlatform === "macos" ? "Mac" : "Desktop";
 
   if (typeof window === "undefined") {
@@ -443,6 +463,12 @@ function localMeshIdentity(runtimePlatform: string): { id: string; label: string
   }
 
   return { id, label };
+}
+
+function rememberLocalMeshIdentity(identity: MeshIdentity): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(DEVICE_ID_KEY, identity.id);
+  window.localStorage.setItem(DEVICE_LABEL_KEY, identity.label);
 }
 
 function StatusTile({ label, value, tone, active = false }: { label: string; value: string; tone: "ok" | "wait" | "bad"; active?: boolean }) {
