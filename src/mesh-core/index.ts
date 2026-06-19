@@ -12,6 +12,14 @@ export { BleTransport } from './mesh/transports/ble.js';
 export type { BleOptions } from './mesh/transports/ble.js';
 export { BroadcastChannelTransport, broadcastChannelSupported } from './mesh/transports/broadcast-channel.js';
 export type { BroadcastChannelOptions } from './mesh/transports/broadcast-channel.js';
+export { WebRtcTransport, webRtcSupported } from './mesh/transports/webrtc.js';
+export type { WebRtcOptions } from './mesh/transports/webrtc.js';
+export { TauriUdpTransport, tauriUdpSupported } from './mesh/transports/tauri-udp.js';
+export type { TauriUdpOptions } from './mesh/transports/tauri-udp.js';
+export { TauriRadioTransport, tauriRadioSupported } from './mesh/transports/tauri-radio.js';
+export type { TauriRadioOptions } from './mesh/transports/tauri-radio.js';
+export { TauriBleTransport, tauriBleSupported } from './mesh/transports/tauri-ble.js';
+export type { TauriBleOptions } from './mesh/transports/tauri-ble.js';
 
 export { chatService } from './mesh/services/chat.js';
 export type { ChatApi, ChatMessage } from './mesh/services/chat.js';
