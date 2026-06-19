@@ -33,7 +33,6 @@ export function tauriBleSupported(): boolean {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-
 function frameToB64(frame: Uint8Array): string {
   let bin = '';
   frame.forEach((b) => (bin += String.fromCharCode(b)));

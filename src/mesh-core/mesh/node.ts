@@ -30,6 +30,8 @@ import {
 const HELLO = 'mesh.hello';
 const BYE = 'mesh.bye';
 const TRANSPORT_START_TIMEOUT_MS = 3000;
+const TRANSPORT_SELF_HEAL_IDLE_MS = 12000;
+const TRANSPORT_SELF_HEAL_COOLDOWN_MS = 20000;
 
 export type MeshNodeEvents = {
   started: void;
@@ -122,6 +124,9 @@ export class MeshNode {
   private transports: Transport[] = [];
   private unsubs: Array<() => void> = [];
   private peerToTransport = new Map<string, Transport>();
+  private transportLastSeen = new Map<Transport, number>();
+  private transportLastHeal = new Map<Transport, number>();
+  private healingTransports = new Set<Transport>();
   private handlers = new Map<string, Set<MessageHandler>>();
   private channels = new Map<string, Set<MessageHandler>>();
   private pending = new Map<string, PendingRequest>();
@@ -196,10 +201,12 @@ export class MeshNode {
     for (const t of this.transports) {
       this.unsubs.push(
         t.on('frame', ({ frame, from }) => {
+          this.transportLastSeen.set(t, Date.now());
           this.peerToTransport.set(from, t);
           this.onIncoming(frame, from);
         }),
         t.on('peerUp', ({ peer }) => {
+          this.transportLastSeen.set(t, Date.now());
           this.peerToTransport.set(peer, t);
           this.sayHello(); // greet the new neighbour promptly
           this.replayTo(peer); // store-and-forward: catch the newcomer up on held frames
@@ -218,12 +225,14 @@ export class MeshNode {
       this.sayHello();
       this.expirePeers();
       this.store.prune(Date.now());
+      this.selfHealTransports();
     }, this.heartbeatMs);
 
     this.events.emit('started', undefined);
   }
 
   private async startTransport(t: Transport): Promise<void> {
+    this.transportLastSeen.set(t, Date.now());
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const start = Promise.resolve(t.start());
     const guarded = new Promise<void>((resolve, reject) => {
@@ -241,6 +250,31 @@ export class MeshNode {
     } finally {
       if (timeout) clearTimeout(timeout);
       start.catch(() => undefined);
+    }
+  }
+
+  private selfHealTransports(): void {
+    const now = Date.now();
+    for (const t of this.transports) {
+      if (this.healingTransports.has(t)) continue;
+      const lastSeen = this.transportLastSeen.get(t) ?? 0;
+      if (now - lastSeen < TRANSPORT_SELF_HEAL_IDLE_MS) continue;
+      const lastHeal = this.transportLastHeal.get(t) ?? 0;
+      if (now - lastHeal < TRANSPORT_SELF_HEAL_COOLDOWN_MS) continue;
+      this.transportLastHeal.set(t, now);
+      this.healingTransports.add(t);
+      void this.rearmTransport(t);
+    }
+  }
+
+  private async rearmTransport(t: Transport): Promise<void> {
+    try {
+      await Promise.resolve(t.stop()).catch(() => undefined);
+      await this.startTransport(t);
+      this.sayHello();
+    } finally {
+      this.transportLastSeen.set(t, Date.now());
+      this.healingTransports.delete(t);
     }
   }
 

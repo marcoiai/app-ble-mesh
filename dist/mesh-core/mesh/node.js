@@ -18,6 +18,8 @@ import { PROTOCOL_VERSION, } from './types.js';
 const HELLO = 'mesh.hello';
 const BYE = 'mesh.bye';
 const TRANSPORT_START_TIMEOUT_MS = 3000;
+const TRANSPORT_SELF_HEAL_IDLE_MS = 12000;
+const TRANSPORT_SELF_HEAL_COOLDOWN_MS = 20000;
 export class MeshNode {
     constructor(opts = {}) {
         /** Lifecycle + discovery events (peer:join/update/leave, started/stopped, message). */
@@ -68,6 +70,24 @@ export class MeshNode {
             configurable: true,
             writable: true,
             value: new Map()
+        });
+        Object.defineProperty(this, "transportLastSeen", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: new Map()
+        });
+        Object.defineProperty(this, "transportLastHeal", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: new Map()
+        });
+        Object.defineProperty(this, "healingTransports", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: new Set()
         });
         Object.defineProperty(this, "handlers", {
             enumerable: true,
@@ -223,9 +243,11 @@ export class MeshNode {
         const starts = [];
         for (const t of this.transports) {
             this.unsubs.push(t.on('frame', ({ frame, from }) => {
+                this.transportLastSeen.set(t, Date.now());
                 this.peerToTransport.set(from, t);
                 this.onIncoming(frame, from);
             }), t.on('peerUp', ({ peer }) => {
+                this.transportLastSeen.set(t, Date.now());
                 this.peerToTransport.set(peer, t);
                 this.sayHello(); // greet the new neighbour promptly
                 this.replayTo(peer); // store-and-forward: catch the newcomer up on held frames
@@ -241,10 +263,12 @@ export class MeshNode {
             this.sayHello();
             this.expirePeers();
             this.store.prune(Date.now());
+            this.selfHealTransports();
         }, this.heartbeatMs);
         this.events.emit('started', undefined);
     }
     async startTransport(t) {
+        this.transportLastSeen.set(t, Date.now());
         let timeout;
         const start = Promise.resolve(t.start());
         const guarded = new Promise((resolve, reject) => {
@@ -261,6 +285,33 @@ export class MeshNode {
             if (timeout)
                 clearTimeout(timeout);
             start.catch(() => undefined);
+        }
+    }
+    selfHealTransports() {
+        const now = Date.now();
+        for (const t of this.transports) {
+            if (this.healingTransports.has(t))
+                continue;
+            const lastSeen = this.transportLastSeen.get(t) ?? 0;
+            if (now - lastSeen < TRANSPORT_SELF_HEAL_IDLE_MS)
+                continue;
+            const lastHeal = this.transportLastHeal.get(t) ?? 0;
+            if (now - lastHeal < TRANSPORT_SELF_HEAL_COOLDOWN_MS)
+                continue;
+            this.transportLastHeal.set(t, now);
+            this.healingTransports.add(t);
+            void this.rearmTransport(t);
+        }
+    }
+    async rearmTransport(t) {
+        try {
+            await Promise.resolve(t.stop()).catch(() => undefined);
+            await this.startTransport(t);
+            this.sayHello();
+        }
+        finally {
+            this.transportLastSeen.set(t, Date.now());
+            this.healingTransports.delete(t);
         }
     }
     async stop() {

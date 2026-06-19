@@ -96,6 +96,9 @@ export declare class MeshNode {
     private transports;
     private unsubs;
     private peerToTransport;
+    private transportLastSeen;
+    private transportLastHeal;
+    private healingTransports;
     private handlers;
     private channels;
     private pending;
@@ -120,6 +123,8 @@ export declare class MeshNode {
     knownPeers(): PeerRecord[];
     start(): Promise<void>;
     private startTransport;
+    private selfHealTransports;
+    private rearmTransport;
     stop(): Promise<void>;
     use<API>(service: MeshService<API>): API;
     service<API>(name: string): API | undefined;
