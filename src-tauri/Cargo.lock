@@ -51,9 +51,13 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 name = "app-ble-mesh"
 version = "0.1.0"
 dependencies = [
+ "block2 0.6.2",
  "btleplug",
  "futures",
  "jni 0.19.0",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
+ "objc2-multipeer-connectivity",
  "serde",
  "serde_json",
  "tauri",
@@ -2454,6 +2458,7 @@ checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
  "bitflags 2.13.0",
  "block2 0.6.2",
+ "libc",
  "objc2 0.6.4",
  "objc2-core-foundation",
 ]
@@ -2467,6 +2472,18 @@ dependencies = [
  "bitflags 2.13.0",
  "objc2 0.6.4",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-multipeer-connectivity"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57abe6c54b6309a1764accab047246afd633fcb2086999b6095c2a0bed5619ba"
+dependencies = [
+ "block2 0.6.2",
+ "objc2 0.6.4",
+ "objc2-app-kit",
+ "objc2-foundation 0.3.2",
 ]
 
 [[package]]

@@ -34,3 +34,4 @@ adapt that carrier so received BLE frames feed a `MeshNode` instead of a demo-sp
 ## Protocol Notes
 
 - subNodes: `docs/protocol/subnodes.md`
+- Levelup extraction/regression contract: `docs/protocol/levelup-port-contract.md`

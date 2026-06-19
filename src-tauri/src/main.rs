@@ -8,6 +8,8 @@ mod ble_android;
 #[cfg(target_os = "macos")]
 mod ble_macos;
 mod identity;
+#[cfg(target_os = "macos")]
+mod multipeer;
 mod protocol;
 
 #[tauri::command]
@@ -90,6 +92,42 @@ fn macos_peripheral_status() -> MacosPeripheralStatusOut {
     {
         MacosPeripheralStatusOut { running: false }
     }
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn mesh_radio_start(app: tauri::AppHandle, peer_id: Option<String>) -> Result<(), String> {
+    multipeer::start(app, peer_id)
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn mesh_radio_start(_peer_id: Option<String>) -> Result<(), String> {
+    Err("mesh_radio: native radio not implemented on this platform".to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn mesh_radio_send(data: Vec<u8>) -> Result<(), String> {
+    multipeer::send(data)
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn mesh_radio_send(_data: Vec<u8>) -> Result<(), String> {
+    Err("mesh_radio: native radio not implemented on this platform".to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn mesh_radio_stop() -> Result<(), String> {
+    multipeer::stop()
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn mesh_radio_stop() -> Result<(), String> {
+    Ok(())
 }
 
 #[tauri::command]
@@ -187,6 +225,9 @@ async fn main() {
             macos_peripheral_start,
             macos_peripheral_stop,
             macos_peripheral_status,
+            mesh_radio_start,
+            mesh_radio_send,
+            mesh_radio_stop,
             mesh_ble_start,
             ble_radio_enabled,
             android_peripheral_send,

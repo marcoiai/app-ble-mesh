@@ -27,5 +27,15 @@ futures = "0.3"
 tauri-plugin-shell = "2.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+  "NSString", "NSData", "NSArray", "NSError", "NSDictionary", "NSObject",
+] }
+objc2-multipeer-connectivity = { version = "0.3", features = [
+  "MCPeerID", "MCSession", "MCNearbyServiceAdvertiser", "MCNearbyServiceBrowser",
+] }
+
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.19"
