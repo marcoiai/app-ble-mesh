@@ -76,12 +76,6 @@ export class TauriBleTransport extends Emitter {
             writable: true,
             value: null
         });
-        Object.defineProperty(this, "unlistenNetwork", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: null
-        });
         // BLE notify/write is capped at the negotiated ATT MTU. Start at the 23-byte-floor
         // payload (16B after our 4B header) and upgrade once native reports real capacity.
         Object.defineProperty(this, "sendSeq", {
@@ -129,18 +123,6 @@ export class TauriBleTransport extends Emitter {
             this.expire();
             this.refreshPayloadSize();
         }, this.presenceMs);
-        const recoverAfterNetworkShift = () => {
-            const peers = [...this.peers.keys()];
-            this.peers.clear();
-            peers.forEach((peer) => this.emit('peerDown', { peer }));
-            void this.restartNative('network changed');
-        };
-        window.addEventListener('online', recoverAfterNetworkShift);
-        window.addEventListener('offline', recoverAfterNetworkShift);
-        this.unlistenNetwork = () => {
-            window.removeEventListener('online', recoverAfterNetworkShift);
-            window.removeEventListener('offline', recoverAfterNetworkShift);
-        };
     }
     refreshPayloadSize() {
         void invoke('mesh_ble_payload')
@@ -162,10 +144,7 @@ export class TauriBleTransport extends Emitter {
         catch { /* shutting down */ }
         if (this.unlisten)
             this.unlisten();
-        if (this.unlistenNetwork)
-            this.unlistenNetwork();
         this.unlisten = null;
-        this.unlistenNetwork = null;
         await invoke('mesh_ble_stop').catch(() => { });
         this.peers.clear();
     }

@@ -54,7 +54,6 @@ export class TauriBleTransport extends Emitter<TransportEvents> implements Trans
   private peerTimeoutMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private unlisten: UnlistenFn | null = null;
-  private unlistenNetwork: (() => void) | null = null;
   // BLE notify/write is capped at the negotiated ATT MTU. Start at the 23-byte-floor
   // payload (16B after our 4B header) and upgrade once native reports real capacity.
   private sendSeq = Math.floor(Math.random() * 0xffff);
@@ -83,18 +82,6 @@ export class TauriBleTransport extends Emitter<TransportEvents> implements Trans
       this.expire();
       this.refreshPayloadSize();
     }, this.presenceMs);
-    const recoverAfterNetworkShift = () => {
-      const peers = [...this.peers.keys()];
-      this.peers.clear();
-      peers.forEach((peer) => this.emit('peerDown', { peer }));
-      void this.restartNative('network changed');
-    };
-    window.addEventListener('online', recoverAfterNetworkShift);
-    window.addEventListener('offline', recoverAfterNetworkShift);
-    this.unlistenNetwork = () => {
-      window.removeEventListener('online', recoverAfterNetworkShift);
-      window.removeEventListener('offline', recoverAfterNetworkShift);
-    };
   }
 
   private refreshPayloadSize(): void {
@@ -113,9 +100,7 @@ export class TauriBleTransport extends Emitter<TransportEvents> implements Trans
     if (this.timer) clearInterval(this.timer);
     try { this.post({ t: 'bye', from: this.peerId }); } catch { /* shutting down */ }
     if (this.unlisten) this.unlisten();
-    if (this.unlistenNetwork) this.unlistenNetwork();
     this.unlisten = null;
-    this.unlistenNetwork = null;
     await invoke('mesh_ble_stop').catch(() => {});
     this.peers.clear();
   }

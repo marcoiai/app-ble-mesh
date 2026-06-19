@@ -29,6 +29,7 @@ import {
 
 const HELLO = 'mesh.hello';
 const BYE = 'mesh.bye';
+const TRANSPORT_START_TIMEOUT_MS = 3000;
 
 export type MeshNodeEvents = {
   started: void;
@@ -191,6 +192,7 @@ export class MeshNode {
     if (this.running) return;
     this.running = true;
 
+    const starts: Array<Promise<void>> = [];
     for (const t of this.transports) {
       this.unsubs.push(
         t.on('frame', ({ frame, from }) => {
@@ -207,14 +209,9 @@ export class MeshNode {
           this.dropPeersVia(peer);
         }),
       );
-      // A single transport failing to start (e.g. UDP multicast blocked) must not
-      // take down the whole node — the others should still run.
-      try {
-        await t.start();
-      } catch (err) {
-        console.error(`[mesh] transport "${t.name}" failed to start`, err);
-      }
+      starts.push(this.startTransport(t));
     }
+    await Promise.all(starts);
 
     this.sayHello();
     this.heartbeat = setInterval(() => {
@@ -224,6 +221,27 @@ export class MeshNode {
     }, this.heartbeatMs);
 
     this.events.emit('started', undefined);
+  }
+
+  private async startTransport(t: Transport): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const start = Promise.resolve(t.start());
+    const guarded = new Promise<void>((resolve, reject) => {
+      timeout = setTimeout(
+        () => reject(new Error(`transport start timed out after ${TRANSPORT_START_TIMEOUT_MS}ms`)),
+        TRANSPORT_START_TIMEOUT_MS,
+      );
+      start.then(resolve, reject);
+    });
+
+    try {
+      await guarded;
+    } catch (err) {
+      console.error(`[mesh] transport "${t.name}" failed to start`, err);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      start.catch(() => undefined);
+    }
   }
 
   async stop(): Promise<void> {

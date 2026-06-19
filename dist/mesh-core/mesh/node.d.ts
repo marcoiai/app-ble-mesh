@@ -119,6 +119,7 @@ export declare class MeshNode {
     neighbors(): string[];
     knownPeers(): PeerRecord[];
     start(): Promise<void>;
+    private startTransport;
     stop(): Promise<void>;
     use<API>(service: MeshService<API>): API;
     service<API>(name: string): API | undefined;

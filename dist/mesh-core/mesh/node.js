@@ -17,6 +17,7 @@ import { packBody, packBodySmallest, unpackBody, compressionSupported, encodedSi
 import { PROTOCOL_VERSION, } from './types.js';
 const HELLO = 'mesh.hello';
 const BYE = 'mesh.bye';
+const TRANSPORT_START_TIMEOUT_MS = 3000;
 export class MeshNode {
     constructor(opts = {}) {
         /** Lifecycle + discovery events (peer:join/update/leave, started/stopped, message). */
@@ -219,6 +220,7 @@ export class MeshNode {
         if (this.running)
             return;
         this.running = true;
+        const starts = [];
         for (const t of this.transports) {
             this.unsubs.push(t.on('frame', ({ frame, from }) => {
                 this.peerToTransport.set(from, t);
@@ -231,15 +233,9 @@ export class MeshNode {
                 this.peerToTransport.delete(peer);
                 this.dropPeersVia(peer);
             }));
-            // A single transport failing to start (e.g. UDP multicast blocked) must not
-            // take down the whole node — the others should still run.
-            try {
-                await t.start();
-            }
-            catch (err) {
-                console.error(`[mesh] transport "${t.name}" failed to start`, err);
-            }
+            starts.push(this.startTransport(t));
         }
+        await Promise.all(starts);
         this.sayHello();
         this.heartbeat = setInterval(() => {
             this.sayHello();
@@ -247,6 +243,25 @@ export class MeshNode {
             this.store.prune(Date.now());
         }, this.heartbeatMs);
         this.events.emit('started', undefined);
+    }
+    async startTransport(t) {
+        let timeout;
+        const start = Promise.resolve(t.start());
+        const guarded = new Promise((resolve, reject) => {
+            timeout = setTimeout(() => reject(new Error(`transport start timed out after ${TRANSPORT_START_TIMEOUT_MS}ms`)), TRANSPORT_START_TIMEOUT_MS);
+            start.then(resolve, reject);
+        });
+        try {
+            await guarded;
+        }
+        catch (err) {
+            console.error(`[mesh] transport "${t.name}" failed to start`, err);
+        }
+        finally {
+            if (timeout)
+                clearTimeout(timeout);
+            start.catch(() => undefined);
+        }
     }
     async stop() {
         if (!this.running)

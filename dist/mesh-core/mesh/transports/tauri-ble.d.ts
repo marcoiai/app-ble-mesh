@@ -13,7 +13,6 @@ export declare class TauriBleTransport extends Emitter<TransportEvents> implemen
     private peerTimeoutMs;
     private timer;
     private unlisten;
-    private unlistenNetwork;
     private sendSeq;
     private rxbuf;
     private chunkPayload;
