@@ -4,7 +4,7 @@
 // mesh. On the private mesh, json-transport already gzips before encrypting, so this
 // is the open-mesh counterpart. Control traffic (hello/ping) is never compressed.
 
-import { levelPack, levelUnpack } from './levelpack.ts';
+import { levelPack, levelUnpack } from './levelpack.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

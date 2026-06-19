@@ -5,8 +5,8 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { Emitter } from '../emitter.ts';
-import type { Transport, TransportEvents } from '../transport.ts';
+import { Emitter } from '../emitter.js';
+import type { Transport, TransportEvents } from '../transport.js';
 
 type Wire =
   | { t: 'frame'; from: string; to?: string; data: string }

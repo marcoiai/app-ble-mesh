@@ -5,8 +5,8 @@
 // topologies (A—B—C, where A and C can't hear each other) and watch the router
 // relay point→point→point. This is the reference transport the others mirror.
 
-import { Emitter } from '../emitter.ts';
-import type { Transport, TransportEvents } from '../transport.ts';
+import { Emitter } from '../emitter.js';
+import type { Transport, TransportEvents } from '../transport.js';
 
 /** Shared medium. Transports register here; `link()` makes two of them neighbours. */
 export class LoopbackHub {

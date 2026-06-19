@@ -3,8 +3,8 @@
 // "Objects" are anything: ROM blobs, save states, items, cards. Binary rides as
 // base64 in `data` for the JSON MVP codec.
 
-import type { MeshNode, MeshService } from '../node.ts';
-import type { NodeId } from '../types.ts';
+import type { MeshNode, MeshService } from '../node.js';
+import type { NodeId } from '../types.js';
 
 export interface TradeObject {
   id: string;

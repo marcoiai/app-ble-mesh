@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": false,
+    "allowImportingTsExtensions": false,
+    "outDir": "dist/mesh-core",
+    "rootDir": "src/mesh-core",
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.mesh-core.tsbuildinfo"
+  },
+  "include": ["src/mesh-core/**/*.ts"],
+  "exclude": ["src/mesh-core/mesh/levelpack-roundtrip.ts"]
+}

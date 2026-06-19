@@ -11,13 +11,16 @@ node_modules
 target
 /Cargo.lock
 crates/*/Cargo.lock
-dist
+dist/*
+!dist/mesh-core/
+!dist/mesh-core/**
 dist-ssr
 *.local
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+*.code-workspace
 .idea
 .DS_Store
 *.suo

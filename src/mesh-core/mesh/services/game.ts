@@ -3,7 +3,7 @@
 // inputs and state snapshots are published to everyone in the lobby. Netcode
 // (rollback, lockstep, authority) is left to the game on top — this is transport.
 
-import type { MeshNode, MeshService } from '../node.ts';
+import type { MeshNode, MeshService } from '../node.js';
 
 export interface GameLobby {
   id: string;

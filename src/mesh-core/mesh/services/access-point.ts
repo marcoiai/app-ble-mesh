@@ -12,7 +12,7 @@
 //
 // See ARCHITECTURE.md → "Resilience: Control Plane vs Data Plane".
 
-import type { MeshNode, MeshService } from '../node.ts';
+import type { MeshNode, MeshService } from '../node.js';
 
 export interface ApCandidacy {
   nodeId: string;

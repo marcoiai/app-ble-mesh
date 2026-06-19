@@ -6,7 +6,7 @@
 // instead of flooding. Same algorithm the MESH screen uses for display; kept separate
 // from the live router so it stays trivially testable.
 
-import type { NodeId } from './types.ts';
+import type { NodeId } from './types.js';
 
 export interface GraphRoute {
   /** Node id of the first hop to take from `self` toward the destination. */

@@ -2,7 +2,7 @@
 // It's isolated here so the framing can later be swapped (CBOR, protobuf, signed
 // frames) without touching the router, node, transports, or services.
 
-import type { Envelope } from './types.ts';
+import type { Envelope } from './types.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

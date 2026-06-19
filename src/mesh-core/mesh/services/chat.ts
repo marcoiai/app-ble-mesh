@@ -1,6 +1,6 @@
 // Chat service — pub/sub rooms over the mesh. Each room is a channel `chat:<room>`.
 
-import type { MeshNode, MeshService } from '../node.ts';
+import type { MeshNode, MeshService } from '../node.js';
 
 export interface ChatMessage {
   room: string;

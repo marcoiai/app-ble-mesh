@@ -2,7 +2,7 @@
 // the same one a public-key identity would take, so we can later set
 // `id = hash(publicKey)` and add signing without changing call sites.
 
-import type { NodeId, NodeInfo } from './types.ts';
+import type { NodeId, NodeInfo } from './types.js';
 
 function randomBytes(n: number): Uint8Array {
   const buf = new Uint8Array(n);

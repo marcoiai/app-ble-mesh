@@ -1,7 +1,7 @@
 // Isolated round-trip + size proof for the body codecs (gzip / lp / lpgz).
 // Run: node src/mesh-core/mesh/levelpack-roundtrip.ts
 // Proves: every codec is lossless on real mesh body shapes, and shows the bytes.
-import { packBody, unpackBody, packBodySmallest, type BodyCodec } from './compress.ts';
+import { packBody, unpackBody, packBodySmallest, type BodyCodec } from './compress.js';
 
 const enc = new TextEncoder();
 const jsonBytes = (v: unknown) => enc.encode(JSON.stringify(v)).length;

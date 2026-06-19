@@ -4,7 +4,7 @@
 // the feed with no central HLS host. Chunks are opaque (base64 audio/video/data) —
 // wiring them into a <video> via MediaSource is the renderer's job.
 
-import type { MeshNode, MeshService } from '../node.ts';
+import type { MeshNode, MeshService } from '../node.js';
 
 export interface StreamMeta {
   id: string;

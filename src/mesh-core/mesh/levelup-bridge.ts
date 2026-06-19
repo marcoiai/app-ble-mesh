@@ -4,13 +4,13 @@
 // neighbours). This adapter feeds one into the other, so the MESH screen can show
 // Codex's computed routes (nextHop / cost / hop path) over the real running mesh.
 
-import type { MeshNode } from './node.ts';
+import type { MeshNode } from './node.js';
 import {
   buildLevelupMeshSnapshot,
   type LevelupMeshPeer,
   type LevelupMeshSnapshot,
   type LevelupMeshTransport,
-} from '../levelup-mesh.ts';
+} from '../levelup-mesh.js';
 
 /** Map a live MeshNode's known peers into a Codex mesh snapshot (with routes). */
 export function toLevelupSnapshot(

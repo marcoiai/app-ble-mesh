@@ -7,16 +7,16 @@
 //   use                         — register a Service (chat/trade/stream/game/…)
 // Plus peer discovery via periodic hello beacons.
 
-import { encode } from './codec.ts';
-import { Emitter } from './emitter.ts';
-import { createIdentity, type IdentityOptions } from './identity.ts';
-import { Router, type Route } from './router.ts';
-import { shortestPaths } from './graph.ts';
-import { ForwardStore } from './store.ts';
-import { createSecureChannel, type SecureChannel } from './secure.ts';
-import { packBody, packBodySmallest, unpackBody, compressionSupported, encodedSize, type BodyCodec } from './compress.ts';
-import type { JsonTransportEnvelope } from '../json-transport.ts';
-import type { Transport } from './transport.ts';
+import { encode } from './codec.js';
+import { Emitter } from './emitter.js';
+import { createIdentity, type IdentityOptions } from './identity.js';
+import { Router, type Route } from './router.js';
+import { shortestPaths } from './graph.js';
+import { ForwardStore } from './store.js';
+import { createSecureChannel, type SecureChannel } from './secure.js';
+import { packBody, packBodySmallest, unpackBody, compressionSupported, encodedSize, type BodyCodec } from './compress.js';
+import type { JsonTransportEnvelope } from '../json-transport.js';
+import type { Transport } from './transport.js';
 import {
   PROTOCOL_VERSION,
   type Envelope,
@@ -25,7 +25,7 @@ import {
   type NodeId,
   type NodeInfo,
   type PeerRecord,
-} from './types.ts';
+} from './types.js';
 
 const HELLO = 'mesh.hello';
 const BYE = 'mesh.bye';

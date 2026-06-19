@@ -4,7 +4,7 @@
 // done, both are on the same encrypted mesh. Hand the invite over a trusted channel
 // (copy-paste / AirDrop / QR), just like the WebRTC handshake blob.
 
-import type { MeshNode } from './node.ts';
+import type { MeshNode } from './node.js';
 
 export interface MeshInvite {
   v: 1;

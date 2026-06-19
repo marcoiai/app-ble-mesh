@@ -7,8 +7,8 @@
 // and we never echo a frame back to the neighbour it came from. Reverse-path
 // learning records "to reach X, send via the neighbour I last heard X through".
 
-import { decode } from './codec.ts';
-import type { Envelope, NodeId } from './types.ts';
+import { decode } from './codec.js';
+import type { Envelope, NodeId } from './types.js';
 
 export interface Route {
   via: string; // transport neighbour handle

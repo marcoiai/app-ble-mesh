@@ -17,7 +17,7 @@ import {
   packJsonForTransport,
   unpackJsonFromTransport,
   type JsonTransportEnvelope,
-} from '../json-transport.ts';
+} from '../json-transport.js';
 
 export interface SecureChannel {
   /** Encrypt a value into a transport envelope (safe to send as a message body). */
