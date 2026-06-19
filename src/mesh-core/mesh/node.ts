@@ -170,7 +170,7 @@ export class MeshNode {
     // Also fire the scene robot's "responding" glow (green) when we receive a ping.
     this.on('mesh.ping', (ctx) => {
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('master_program:ping:confirmed'));
+        window.dispatchEvent(new Event('master-program:ping:confirmed'));
       }
       // Include the forward path so the caller can reconstruct the full route.
       ctx.reply({ ts: Date.now(), fwdPath: ctx.envelope.path });
