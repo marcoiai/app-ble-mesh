@@ -1,35 +1,36 @@
 # Better Prompts
 
-Contexto vivo do projeto para Codex/Claude/agents não repetirem decisões ruins.
+Este arquivo e um log de melhoria de prompts.
 
-## Fluxo De Git
+Uso correto:
 
-- Um worktree por repo.
-- `dev` é a base normal de trabalho.
-- Branch nova sai de `dev`: `feat/*`, `fix/*`, `hotfix/*`.
-- Não usar rebase por padrão.
-- Para atualizar branch existente, usar `git fetch origin` e `git pull` conforme o fluxo do repo.
-- Não misturar mudanças de outros assuntos no mesmo commit.
+- De vez em quando, analisar um prompt do Marco e sugerir uma versao melhor.
+- Registrar o prompt original e a versao sugerida logo abaixo.
+- Identificar sempre o repo e a branch no momento do registro.
+- Nao usar este arquivo como PROJECT_STATE, roadmap, changelog ou memoria geral do repo.
 
-## app-ble-mesh E Levelup
+Formato:
 
-- `levelup` foi o protótipo; `app-ble-mesh` está virando a lib/protocolo.
-- O objetivo é o Levelup consumir `app-ble-mesh` como biblioteca, não copiar pedaços manualmente.
-- Compilar e exportar o núcleo todo que for reutilizável, principalmente `mesh-core`.
-- BLE é adapter/transporte; o núcleo deve ser transporte-agnóstico.
-- Evitar “corrigir” declaração gerada com script pós-build. Se `.d.ts` sai errado, ajustar o source/tsconfig/export do pacote.
+```md
+## YYYY-MM-DD - repo - branch
 
-## Estado Esperado Do Mesh
+Prompt original:
+> ...
 
-- Mac<->Mac off-grid via Multipeer.
-- Mac<->Android off-grid via BLE/radio.
-- Droid pode atuar como central quando necessário.
-- Todos os nós devem conseguir se descobrir e trocar chat/eventos.
-- `chat.direct` precisa continuar entregando request/reply cross-node.
-- Pixelator trafega pela malha, mas alterações nele são assunto separado.
+Prompt sugerido:
+> ...
 
-## Cuidados
+Observacao:
+- ...
+```
 
-- Não remover solução que já funcionava sem confirmar no histórico/código.
-- Não mexer em Gradle, Android gerado ou runtime sidecar junto com refactor de lib, salvo se for explicitamente o objetivo.
-- Arquivos de workspace do VS Code são locais e não fazem parte da biblioteca.
+## 2026-06-19 - app-ble-mesh - fix/stable-chat-identity
+
+Prompt original:
+> de vez em quando, grava ai, de vez em quando tu analisa um prompt meu e sugere um melhor, ai grava o meu e o teu logo abaixo, identifica com repo e branch tb
+
+Prompt sugerido:
+> Quando eu pedir para registrar um prompt melhor, adicione uma entrada em `BETTER_PROMPTS.md` com: data, repo, branch, meu prompt original e uma versao reescrita mais clara logo abaixo. Esse arquivo e apenas um log de melhoria de prompts, nao memoria geral do projeto.
+
+Observacao:
+- O arquivo deve servir para comparar como eu pedi algo e como eu poderia ter pedido com menos ambiguidade.
