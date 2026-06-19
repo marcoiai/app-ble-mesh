@@ -98,6 +98,7 @@ export declare class MeshNode {
     private peerToTransport;
     private transportLastSeen;
     private transportLastHeal;
+    private transportEverLinked;
     private healingTransports;
     private handlers;
     private channels;

@@ -126,6 +126,7 @@ export class MeshNode {
   private peerToTransport = new Map<string, Transport>();
   private transportLastSeen = new Map<Transport, number>();
   private transportLastHeal = new Map<Transport, number>();
+  private transportEverLinked = new Set<Transport>();
   private healingTransports = new Set<Transport>();
   private handlers = new Map<string, Set<MessageHandler>>();
   private channels = new Map<string, Set<MessageHandler>>();
@@ -201,11 +202,13 @@ export class MeshNode {
     for (const t of this.transports) {
       this.unsubs.push(
         t.on('frame', ({ frame, from }) => {
+          this.transportEverLinked.add(t);
           this.transportLastSeen.set(t, Date.now());
           this.peerToTransport.set(from, t);
           this.onIncoming(frame, from);
         }),
         t.on('peerUp', ({ peer }) => {
+          this.transportEverLinked.add(t);
           this.transportLastSeen.set(t, Date.now());
           this.peerToTransport.set(peer, t);
           this.sayHello(); // greet the new neighbour promptly
@@ -257,6 +260,8 @@ export class MeshNode {
     const now = Date.now();
     for (const t of this.transports) {
       if (this.healingTransports.has(t)) continue;
+      if (!this.transportEverLinked.has(t)) continue;
+      if (t.neighbors().length > 0) continue;
       const lastSeen = this.transportLastSeen.get(t) ?? 0;
       if (now - lastSeen < TRANSPORT_SELF_HEAL_IDLE_MS) continue;
       const lastHeal = this.transportLastHeal.get(t) ?? 0;

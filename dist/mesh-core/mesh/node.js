@@ -83,6 +83,12 @@ export class MeshNode {
             writable: true,
             value: new Map()
         });
+        Object.defineProperty(this, "transportEverLinked", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: new Set()
+        });
         Object.defineProperty(this, "healingTransports", {
             enumerable: true,
             configurable: true,
@@ -243,10 +249,12 @@ export class MeshNode {
         const starts = [];
         for (const t of this.transports) {
             this.unsubs.push(t.on('frame', ({ frame, from }) => {
+                this.transportEverLinked.add(t);
                 this.transportLastSeen.set(t, Date.now());
                 this.peerToTransport.set(from, t);
                 this.onIncoming(frame, from);
             }), t.on('peerUp', ({ peer }) => {
+                this.transportEverLinked.add(t);
                 this.transportLastSeen.set(t, Date.now());
                 this.peerToTransport.set(peer, t);
                 this.sayHello(); // greet the new neighbour promptly
@@ -291,6 +299,10 @@ export class MeshNode {
         const now = Date.now();
         for (const t of this.transports) {
             if (this.healingTransports.has(t))
+                continue;
+            if (!this.transportEverLinked.has(t))
+                continue;
+            if (t.neighbors().length > 0)
                 continue;
             const lastSeen = this.transportLastSeen.get(t) ?? 0;
             if (now - lastSeen < TRANSPORT_SELF_HEAL_IDLE_MS)
