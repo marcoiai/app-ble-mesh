@@ -161,6 +161,7 @@ export declare class MeshNode {
     /** Send an (already-built) envelope onward: unicast via a learned route, else flood. */
     private route;
     private onIncoming;
+    private noteDirectActivity;
     private dispatch;
     private deliver;
     private sayHello;

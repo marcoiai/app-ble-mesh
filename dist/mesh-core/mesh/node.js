@@ -512,6 +512,11 @@ export class MeshNode {
     onIncoming(frame, fromPeer) {
         const now = Date.now();
         const res = this.router.handle(frame, fromPeer, now);
+        // Router exposes `envelope` for duplicates too. Only a new accepted frame
+        // with a delivery/forward decision can provide fresh evidence of activity.
+        if (res.envelope && (res.deliver || res.forward)) {
+            this.noteDirectActivity(res.envelope, fromPeer, now);
+        }
         if (res.deliver)
             this.dispatch(res.deliver, fromPeer, now);
         if (res.forward) {
@@ -522,6 +527,19 @@ export class MeshNode {
             else
                 this.flood(env, plan.except);
         }
+    }
+    noteDirectActivity(env, fromPeer, now) {
+        // Discovery and graceful departure retain their existing semantics.
+        if (env.type === HELLO || env.type === BYE)
+            return;
+        const peer = this.peers.get(env.from);
+        if (!peer?.direct || peer.via !== fromPeer)
+            return;
+        // A relay/store may carry an old origin's envelope. It proves neither that
+        // origin's presence nor a new direct route, even when the frame is unseen.
+        if (env.path.length !== 1 || env.path[0] !== env.from)
+            return;
+        peer.lastSeen = now;
     }
     dispatch(env, fromPeer, now) {
         // Hello beacons drive peer discovery and never reach app handlers (always clear).
