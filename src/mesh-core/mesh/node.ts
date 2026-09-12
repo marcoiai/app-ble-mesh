@@ -123,7 +123,8 @@ export class MeshNode {
   private store: ForwardStore;
   private transports: Transport[] = [];
   private unsubs: Array<() => void> = [];
-  private peerToTransport = new Map<string, Transport>();
+  // Each peer can be reachable through several carriers. Set order tracks recency.
+  private peerTransports = new Map<string, Set<Transport>>();
   private transportLastSeen = new Map<Transport, number>();
   private transportLastHeal = new Map<Transport, number>();
   private transportEverLinked = new Set<Transport>();
@@ -184,6 +185,29 @@ export class MeshNode {
     return this;
   }
 
+  private noteTransport(peer: string, transport: Transport): void {
+    const links = this.peerTransports.get(peer) ?? new Set<Transport>();
+    // Refresh the preferred carrier without losing other live paths.
+    links.delete(transport);
+    links.add(transport);
+    this.peerTransports.set(peer, links);
+  }
+
+  /** True only when a known peer has lost its final carrier. */
+  private removeTransport(peer: string, transport: Transport): boolean {
+    const links = this.peerTransports.get(peer);
+    if (!links?.delete(transport)) return false;
+    if (links.size > 0) return false;
+    this.peerTransports.delete(peer);
+    return true;
+  }
+
+  private preferredTransport(peer: string): Transport | undefined {
+    let preferred: Transport | undefined;
+    for (const transport of this.peerTransports.get(peer) ?? []) preferred = transport;
+    return preferred;
+  }
+
   neighbors(): string[] {
     return this.transports.flatMap((t) => t.neighbors());
   }
@@ -204,19 +228,18 @@ export class MeshNode {
         t.on('frame', ({ frame, from }) => {
           this.transportEverLinked.add(t);
           this.transportLastSeen.set(t, Date.now());
-          this.peerToTransport.set(from, t);
+          this.noteTransport(from, t);
           this.onIncoming(frame, from);
         }),
         t.on('peerUp', ({ peer }) => {
           this.transportEverLinked.add(t);
           this.transportLastSeen.set(t, Date.now());
-          this.peerToTransport.set(peer, t);
+          this.noteTransport(peer, t);
           this.sayHello(); // greet the new neighbour promptly
           this.replayTo(peer); // store-and-forward: catch the newcomer up on held frames
         }),
         t.on('peerDown', ({ peer }) => {
-          this.peerToTransport.delete(peer);
-          this.dropPeersVia(peer);
+          if (this.removeTransport(peer, t)) this.dropPeersVia(peer);
         }),
       );
       starts.push(this.startTransport(t));
@@ -729,7 +752,7 @@ export class MeshNode {
    * only when its destination itself is the newcomer (the mule reached the target). */
   private replayTo(peer: string): void {
     if (!this.store.enabled) return;
-    const t = this.peerToTransport.get(peer);
+    const t = this.preferredTransport(peer);
     if (!t) return;
     for (const f of this.store.pending(Date.now())) {
       if (f.to === null || f.to === peer) t.sendTo(peer, f.frame);
@@ -754,11 +777,11 @@ export class MeshNode {
     // back to sendAll when there aren't enough neighbours to subset — at that point gossip
     // and flood are identical anyway.
     const eligible: string[] = [];
-    for (const peer of this.peerToTransport.keys()) {
+    for (const peer of this.peerTransports.keys()) {
       if (peer !== except) eligible.push(peer);
     }
     if (eligible.length <= this.gossipFanout) {
-      for (const peer of eligible) this.peerToTransport.get(peer)!.sendTo(peer, frame);
+      for (const peer of eligible) this.preferredTransport(peer)!.sendTo(peer, frame);
       return;
     }
     // Fisher–Yates partial shuffle: O(fanout), no allocation of the full permutation.
@@ -766,14 +789,13 @@ export class MeshNode {
       const j = i + Math.floor(Math.random() * (eligible.length - i));
       const pick = eligible[j];
       eligible[j] = eligible[i];
-      this.peerToTransport.get(pick)!.sendTo(pick, frame);
+      this.preferredTransport(pick)!.sendTo(pick, frame);
     }
   }
 
   private transmitTo(peer: string, env: Envelope): void {
-    const t = this.peerToTransport.get(peer);
+    const t = this.preferredTransport(peer);
     if (t) t.sendTo(peer, encode(env));
     else this.flood(env, null); // route stale — fall back to flood
   }
 }
-

@@ -95,7 +95,7 @@ export declare class MeshNode {
     private store;
     private transports;
     private unsubs;
-    private peerToTransport;
+    private peerTransports;
     private transportLastSeen;
     private transportLastHeal;
     private transportEverLinked;
@@ -120,6 +120,10 @@ export declare class MeshNode {
     private secretKey;
     constructor(opts?: MeshNodeOptions);
     addTransport(t: Transport): this;
+    private noteTransport;
+    /** True only when a known peer has lost its final carrier. */
+    private removeTransport;
+    private preferredTransport;
     neighbors(): string[];
     knownPeers(): PeerRecord[];
     start(): Promise<void>;
