@@ -712,9 +712,22 @@ export class MeshNode {
   }
 
   private expirePeers(): void {
-    const cutoff = Date.now() - this.heartbeatMs * 3;
+    const now = Date.now();
+    const cutoff = now - this.heartbeatMs * 3;
     let changed = false;
     for (const [id, rec] of this.peers) {
+      // Small transport beacons can arrive while a full HELLO waits behind a
+      // fragmented request. Refresh only an already-discovered direct peer;
+      // a relay's presence cannot vouch for other origins behind it.
+      if (rec.direct) {
+        for (const transport of this.peerTransports.get(rec.via) ?? []) {
+          const receivedAt = transport.lastPresenceAt?.(rec.via);
+          if (receivedAt !== undefined && Number.isFinite(receivedAt)
+            && receivedAt <= now && receivedAt > rec.lastSeen) {
+            rec.lastSeen = receivedAt;
+          }
+        }
+      }
       if (rec.lastSeen < cutoff) {
         this.peers.delete(id);
         changed = true;

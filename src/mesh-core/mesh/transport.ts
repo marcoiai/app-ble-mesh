@@ -29,6 +29,10 @@ export interface Transport {
   /** Current direct neighbour handles. */
   neighbors(): string[];
 
+  /** Optional local receive time (Date.now milliseconds) of a complete presence
+   * beacon from this direct neighbour. Never use send time or mere link state. */
+  lastPresenceAt?(peer: string): number | undefined;
+
   /** Send a frame to one direct neighbour. */
   sendTo(peer: string, frame: Uint8Array): void;
   /** Send a frame to every direct neighbour, optionally excluding one. */
