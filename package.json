@@ -18,7 +18,8 @@
     "build": "tsc && vite build && pnpm build:mesh-core",
     "build:mesh-core": "tsc -p tsconfig.mesh-core.json",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:mesh-core": "pnpm build:mesh-core && node --test tests/peer-transports.test.mjs"
   },
   "dependencies": {
     "react": "^19.1.0",
