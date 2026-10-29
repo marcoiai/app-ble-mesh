@@ -7,7 +7,7 @@
 //   use                         — register a Service (chat/trade/stream/game/…)
 // Plus peer discovery via periodic hello beacons.
 
-import { encode } from './codec.js';
+import { encode, decode } from './codec.js';
 import { Emitter } from './emitter.js';
 import { createIdentity, type IdentityOptions } from './identity.js';
 import { Router, type Route } from './router.js';
@@ -89,6 +89,8 @@ export interface MeshNodeOptions extends IdentityOptions {
    * at the same cost — gossip cuts the *upper layer* duplication, not the radio.
    */
   gossipFanout?: number;
+  /** Reject all unencrypted application frames and refuse app sends until a secret is configured. */
+  requireEncryption?: boolean;
 }
 
 export interface MeshService<API = unknown> {
@@ -147,10 +149,12 @@ export class MeshNode {
   private heartbeat?: ReturnType<typeof setInterval>;
   private running = false;
   private secure: SecureChannel | null = null;
+  private requireEncryption: boolean;
   private secretKey: string | null = null;
 
   constructor(opts: MeshNodeOptions = {}) {
     this.info = createIdentity(opts);
+    this.requireEncryption = opts.requireEncryption ?? false;
     this.id = this.info.id;
     this.defaultTtl = opts.defaultTtl ?? 8;
     this.discoveryTtl = opts.discoveryTtl ?? 3;
@@ -448,6 +452,10 @@ export class MeshNode {
     reply?: boolean;
     ttl?: number;
   }): string {
+    const isControl = opts.type === HELLO || opts.type === BYE || opts.type === 'mesh.ping';
+    if (this.requireEncryption && !isControl && !this.secure) {
+      throw new Error('mesh: encryption key required before sending application data');
+    }
     const env: Envelope = {
       v: PROTOCOL_VERSION,
       id: globalThis.crypto.randomUUID(),
@@ -473,7 +481,6 @@ export class MeshNode {
 
     // On a private mesh, seal app payloads (gzip + AES-GCM) before they leave.
     // Control traffic (hello/ping) stays clear so discovery keeps working.
-    const isControl = opts.type === HELLO || opts.type === BYE || opts.type === 'mesh.ping';
     if (this.secure && !isControl) {
       this.secure
         .seal(env.body)
@@ -507,6 +514,14 @@ export class MeshNode {
   }
 
   private onIncoming(frame: Uint8Array, fromPeer: string): void {
+    // Reject plaintext application traffic before it can be stored or forwarded.
+    // Relays may forward encrypted frames without possessing the group key.
+    if (this.requireEncryption) {
+      let incoming: Envelope;
+      try { incoming = decode(frame); } catch { return; }
+      const control = incoming.type === HELLO || incoming.type === BYE || incoming.type === 'mesh.ping';
+      if (!control && incoming.enc !== true) return;
+    }
     const now = Date.now();
     const res = this.router.handle(frame, fromPeer, now);
     // Router exposes `envelope` for duplicates too. Only a new accepted frame
@@ -564,6 +579,7 @@ export class MeshNode {
         .catch(() => {});
       return;
     }
+    if (this.requireEncryption && env.type !== 'mesh.ping') return;
     this.deliver(env, fromPeer, now);
   }
 
