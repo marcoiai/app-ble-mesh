@@ -15,7 +15,7 @@ import { shortestPaths } from './graph.js';
 import { ForwardStore } from './store.js';
 import { createSecureChannel, type SecureChannel } from './secure.js';
 import { packBody, packBodySmallest, unpackBody, compressionSupported, encodedSize, type BodyCodec } from './compress.js';
-import type { JsonTransportEnvelope } from '../json-transport.js';
+import type { SecureTransportEnvelope } from '../json-transport.js';
 import type { Transport } from './transport.js';
 import {
   PROTOCOL_VERSION,
@@ -566,7 +566,7 @@ export class MeshNode {
     if (env.enc) {
       if (!this.secure) return;
       this.secure
-        .open(env.body as JsonTransportEnvelope)
+        .open(env.body as SecureTransportEnvelope)
         .then((body) => this.deliver({ ...env, enc: false, body }, fromPeer, now))
         .catch(() => {}); // wrong passphrase / corrupt frame
       return;
