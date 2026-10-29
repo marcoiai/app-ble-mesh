@@ -1,7 +1,7 @@
-// Run in Node >=22: node --experimental-strip-types src/mesh-core/mesh/levelpack-secure-roundtrip.ts
-import { createSecureChannel } from './secure.ts';
-import { packJsonForTransport } from '../json-transport.ts';
-import { levelPack } from './levelpack.ts';
+// Run in Node >=22: run with a TS-aware runner (e.g. tsx src/mesh-core/mesh/levelpack-secure-roundtrip.ts)
+import { createSecureChannel } from './secure.js';
+import { packJsonForTransport } from '../json-transport.js';
+import { levelPack } from './levelpack.js';
 
 function check(condition: unknown, label: string): void {
   if (!condition) throw new Error('Level Pack secure test failed: ' + label);
