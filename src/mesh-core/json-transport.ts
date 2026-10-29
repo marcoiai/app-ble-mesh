@@ -1,3 +1,5 @@
+import { levelPack, levelUnpack, jsonSize } from './mesh/levelpack.js';
+
 export interface JsonTransportEnvelope {
   kind: 'compact-json';
   v: 1;
@@ -150,4 +152,68 @@ export async function unpackJsonFromTransport<T = unknown>(
   const compressed = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encrypted));
   const jsonBytes = await gunzip(compressed);
   return JSON.parse(decoder.decode(jsonBytes)) as T;
+}
+
+/** Level Pack v2: compact binary payload sealed with the existing PBKDF2/AES-GCM crypto.
+ * Legacy compact-json v1 remains decodable for compatible private mesh peers. */
+export interface LevelPackTransportEnvelope {
+  kind: 'level-pack';
+  v: 2;
+  codec: 'lp';
+  zip: 'none' | 'gzip';
+  alg: 'AES-GCM';
+  kdf: 'PBKDF2-SHA256';
+  iterations: number;
+  salt: string;
+  iv: string;
+  data: string;
+  stats: { jsonBytes: number; lpBytes: number; packedBytes: number; encryptedBytes: number };
+}
+
+export type SecureTransportEnvelope = JsonTransportEnvelope | LevelPackTransportEnvelope;
+
+export async function packLevelPackForTransport(
+  value: unknown,
+  options: JsonTransportOptions,
+): Promise<LevelPackTransportEnvelope> {
+  if (typeof crypto === 'undefined' || !crypto.subtle) throw new Error('web_crypto_unavailable');
+  const iterations = options.iterations ?? DEFAULT_ITERATIONS;
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const lp = levelPack(value);
+  // Never gzip unless it saves bytes; encryption always receives compact binary.
+  let payload = lp;
+  let zip: 'none' | 'gzip' = 'none';
+  if (typeof CompressionStream !== 'undefined') {
+    const compressed = await gzip(lp);
+    if (compressed.byteLength < lp.byteLength) {
+      payload = compressed;
+      zip = 'gzip';
+    }
+  }
+  const key = await deriveAesKey(options.passphrase, salt, iterations);
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, payload));
+  return {
+    kind: 'level-pack', v: 2, codec: 'lp', zip, alg: 'AES-GCM', kdf: 'PBKDF2-SHA256',
+    iterations, salt: bytesToBase64Url(salt), iv: bytesToBase64Url(iv),
+    data: bytesToBase64Url(encrypted),
+    stats: { jsonBytes: jsonSize(value), lpBytes: lp.byteLength,
+      packedBytes: payload.byteLength, encryptedBytes: encrypted.byteLength },
+  };
+}
+
+export async function unpackLevelPackFromTransport<T = unknown>(
+  envelope: LevelPackTransportEnvelope, options: JsonTransportOptions,
+): Promise<T> {
+  if (envelope.kind !== 'level-pack' || envelope.v !== 2 || envelope.codec !== 'lp' ||
+      envelope.alg !== 'AES-GCM' || envelope.kdf !== 'PBKDF2-SHA256' ||
+      (envelope.zip !== 'none' && envelope.zip !== 'gzip')) {
+    throw new Error('level_pack_envelope_unsupported');
+  }
+  const key = await deriveAesKey(options.passphrase, base64UrlToBytes(envelope.salt), envelope.iterations);
+  const decrypted = new Uint8Array(await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: base64UrlToBytes(envelope.iv) }, key, base64UrlToBytes(envelope.data),
+  ));
+  const binary = envelope.zip === 'gzip' ? await gunzip(decrypted) : decrypted;
+  return levelUnpack(binary) as T;
 }
